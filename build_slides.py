@@ -1093,7 +1093,127 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 12: Anthropic Improves = Free Upgrade
+# SLIDE 12: n8n Workflow vs AI Agent — When to Use Which
+# ============================================================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide, LIGHT_BG)
+add_title_bar(slide, "n8n Workflows vs AI Agent: Right Tool for the Job",
+              "Agents are powerful but expensive — use workflows for repetitive, predictable tasks")
+
+# Cost callout at top
+add_shape_with_text(slide, Inches(0.5), Inches(1.25), Inches(12.3), Inches(0.55),
+    "Core Principle:  AI agent calls cost tokens.  Every message = API cost.  "
+    "If the task is the same every time, don't pay an AI to think about it — automate it.",
+    font_size=14, bold=True, color=WHITE, bg_color=RGBColor(0xC0, 0x39, 0x2B),
+    alignment=PP_ALIGN.CENTER)
+
+# Left: n8n workflows
+add_card(slide, Inches(0.4), Inches(2.1), Inches(6.2), Inches(3.2),
+         "n8n Workflow  (Low Cost, High Volume)", [
+             "Best for: Repetitive, predictable, rule-based tasks",
+             "",
+             "\u2022  Send monthly invoice reminders to all clients",
+             "\u2022  Auto-file incoming emails to client folders",
+             "\u2022  Daily backup of engagement files to Google Drive",
+             "\u2022  Forward signed documents to the right team",
+             "\u2022  Sync data between systems on a schedule",
+             "\u2022  Generate standard recurring reports (same format)",
+             "",
+             "Cost: Near-zero  (self-hosted, no AI tokens)",
+             "Speed: Instant  (no model inference)",
+             "Setup: Visual drag-and-drop workflow builder",
+         ], header_color=GREEN, font_size=11)
+
+# Right: AI Agent
+add_card(slide, Inches(6.8), Inches(2.1), Inches(6.2), Inches(3.2),
+         "AI Agent  (Higher Cost, High Value)", [
+             "Best for: Dynamic, judgment-heavy, varied tasks",
+             "",
+             "\u2022  Prepare tax computation (different P&L each time)",
+             "\u2022  Draft audit report with professional judgment",
+             "\u2022  Read and summarize a new contract",
+             "\u2022  Answer staff questions about standards",
+             "\u2022  Create custom workpapers for unique situations",
+             "\u2022  Handle tasks that need reasoning and context",
+             "",
+             "Cost: ~RM 0.10\u20130.50 per request  (API tokens)",
+             "Speed: 30s\u20135min  (depends on complexity)",
+             "Setup: Skills + CLAUDE.md (plain English)",
+         ], header_color=MID_BLUE, font_size=11)
+
+# Decision matrix
+add_text_box(slide, Inches(0.4), Inches(5.5), Inches(12), Inches(0.35),
+             "Quick Decision Guide:", font_size=15, bold=True, color=DARK_BLUE)
+
+matrix_headers = ["Question", "n8n Workflow", "AI Agent"]
+matrix_rows = [
+    ["Is the task the same every time?", "YES \u2192 n8n", "NO \u2192 Agent"],
+    ["Does it require reading/understanding new documents?", "NO \u2192 n8n", "YES \u2192 Agent"],
+    ["Does it need professional judgment?", "NO \u2192 n8n", "YES \u2192 Agent"],
+    ["Does it run on a schedule (daily/weekly)?", "YES \u2192 n8n", "On-demand \u2192 Agent"],
+]
+
+mcol_w = [Inches(5.2), Inches(3.4), Inches(3.4)]
+mcol_x = [Inches(0.5), Inches(5.7), Inches(9.1)]
+
+# Headers
+for j, (header, cx, cw) in enumerate(zip(matrix_headers, mcol_x, mcol_w)):
+    add_shape_with_text(slide, cx, Inches(5.85), cw, Inches(0.35),
+                        header, font_size=10, bold=True, color=WHITE,
+                        bg_color=DARK_BLUE, alignment=PP_ALIGN.CENTER)
+
+# Rows
+for i, row in enumerate(matrix_rows):
+    y = Inches(6.2) + i * Inches(0.3)
+    bg = WHITE if i % 2 == 0 else LIGHT_BG
+    for j, (cell, cx, cw) in enumerate(zip(row, mcol_x, mcol_w)):
+        clr = DARK_TEXT
+        if j == 1 and "n8n" in cell:
+            clr = GREEN
+        elif j == 2 and "Agent" in cell:
+            clr = MID_BLUE
+        add_shape_with_text(slide, cx, y, cw, Inches(0.28),
+                            cell, font_size=9, bold=(j==0), color=clr,
+                            bg_color=bg, alignment=PP_ALIGN.CENTER if j > 0 else PP_ALIGN.LEFT)
+
+add_notes(slide,
+    "N8N vs AI AGENT — CRITICAL COST STRATEGY:\n\n"
+    "This slide addresses the most common mistake firms make: using the AI agent for everything.\n\n"
+    "AI AGENT COSTS:\n"
+    "- Claude API: ~USD 3/million input tokens, ~USD 15/million output tokens (Sonnet)\n"
+    "- A single tax computation might use 50K-200K tokens = ~RM 0.30-1.50\n"
+    "- 100 requests/day = RM 30-150/day = RM 600-3000/month in API costs alone\n"
+    "- Claude Max subscription ($100/mo) is more predictable but has rate limits\n\n"
+    "N8N WORKFLOW COSTS:\n"
+    "- Self-hosted on same Mac Mini: FREE\n"
+    "- Cloud n8n: starts free, ~$20/mo for more workflows\n"
+    "- No AI tokens consumed. Just HTTP calls, file operations, simple logic.\n\n"
+    "REAL EXAMPLES FOR AN ACCOUNTING FIRM:\n\n"
+    "USE N8N:\n"
+    "- Every Monday, email all clients whose documents are overdue (query DB, send template email)\n"
+    "- When a signed engagement letter arrives in Gmail, save to /engagements/{client}/ and notify team\n"
+    "- Daily at 6pm, backup today's work to Google Drive\n"
+    "- When invoice is marked paid in accounting software, update status tracker\n"
+    "- Monthly: generate list of upcoming FYE deadlines from database\n\n"
+    "USE AI AGENT:\n"
+    "- Prepare tax computation (needs to READ the P&L, UNDERSTAND the numbers, APPLY tax rules)\n"
+    "- Draft audit report (needs JUDGMENT about qualifications, emphasis of matter)\n"
+    "- Summarize a new contract's key terms (needs to READ and COMPREHEND unique document)\n"
+    "- Answer: 'Is this lease operating or finance under MPERS?' (needs REASONING)\n"
+    "- Create a custom workpaper for an unusual transaction\n\n"
+    "HYBRID PATTERN:\n"
+    "n8n triggers the agent only when needed.\n"
+    "Example: n8n monitors Gmail → new P&L received → n8n saves file → n8n sends Telegram message\n"
+    "to Agent K: 'Prepare tax computation for {client} using the P&L at {path}'\n"
+    "The workflow handles the predictable routing. The agent handles the thinking.\n\n"
+    "RULE OF THUMB:\n"
+    "If you can draw the workflow as a flowchart with no 'it depends' branches → use n8n.\n"
+    "If the task requires reading, understanding, or making judgment calls → use the agent."
+)
+
+
+# ============================================================
+# SLIDE 13: Anthropic Improves = Free Upgrade
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -1150,7 +1270,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 13: Self-Maintaining via Telegram
+# SLIDE 14: Self-Maintaining via Telegram
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -1204,7 +1324,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 14: Concurrent Sessions on Mac Mini
+# SLIDE 15: Concurrent Sessions on Mac Mini
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -1306,7 +1426,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 15: Recommendation
+# SLIDE 16: Recommendation
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -1370,7 +1490,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 16: Next Steps
+# SLIDE 17: Next Steps
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, DARK_BLUE)
