@@ -526,7 +526,574 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 7: Anthropic Improves = Free Upgrade
+# SLIDE 7: Full Message Flow — Step by Step
+# ============================================================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide, LIGHT_BG)
+add_title_bar(slide, "Message Flow: What Happens When You Send a Message",
+              "7 steps from Telegram to deliverable — under the hood")
+
+flow_steps = [
+    ("1", "User sends message", "Telegram",
+     '"Prepare the tax computation for ABC Sdn Bhd FYE 2025"',
+     RGBColor(0x8E, 0x44, 0xAD)),
+    ("2", "Bot receives via Telegraf", "index.js",
+     "Auth check \u2192 duplicate check \u2192 send '🤔 Processing...'",
+     MID_BLUE),
+    ("3", "Bot detects MCP servers needed", "claude-runner.js",
+     "Keyword scan: 'tax' \u2192 no MCP needed (fast mode)\n'email' \u2192 load Gmail MCP  |  'browse' \u2192 load Playwright",
+     MID_BLUE),
+    ("4", "Bot spawns Claude CLI", "claude-runner.js",
+     "spawn('claude', ['-p', '--output-format', 'json',\n'--resume', sessionId, message])",
+     DARK_BLUE),
+    ("5", "Claude CLI does the work", "Claude + Skills + MCP",
+     "Reads CLAUDE.md (soul) \u2192 matches /tax-computation skill \u2192\nopens template \u2192 fills data \u2192 calculates \u2192 saves Excel",
+     DARK_BLUE),
+    ("6", "Claude returns JSON result", "claude-runner.js",
+     '{ "result": "Tax computation complete...\n[SEND_FILE: /engagements/...]", "session_id": "abc123" }',
+     MID_BLUE),
+    ("7", "Bot delivers to Telegram", "index.js",
+     "Parse [SEND_FILE:] tags \u2192 send text response \u2192\nsend Excel file \u2192 save session ID to SQLite",
+     GREEN),
+]
+
+for i, (num, title, location, detail, color) in enumerate(flow_steps):
+    y = Inches(1.25) + i * Inches(0.85)
+    # Step number
+    circle = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(0.3), y + Inches(0.08), Inches(0.45), Inches(0.45))
+    circle.fill.solid()
+    circle.fill.fore_color.rgb = color
+    circle.line.fill.background()
+    tf = circle.text_frame
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    p = tf.paragraphs[0]
+    p.text = num
+    p.font.size = Pt(14)
+    p.font.bold = True
+    p.font.color.rgb = WHITE
+    p.alignment = PP_ALIGN.CENTER
+
+    # Title + location
+    add_text_box(slide, Inches(0.9), y, Inches(2.8), Inches(0.35),
+                 title, font_size=13, bold=True, color=DARK_BLUE)
+    add_text_box(slide, Inches(0.9), y + Inches(0.32), Inches(2.8), Inches(0.3),
+                 location, font_size=10, color=GREY_TEXT)
+
+    # Detail box
+    add_shape_with_text(slide, Inches(3.8), y, Inches(9.2), Inches(0.75),
+                        detail, font_size=10, color=DARK_TEXT,
+                        bg_color=WHITE, border_color=CARD_BORDER)
+
+add_notes(slide,
+    "THIS SLIDE SHOWS THE COMPLETE JOURNEY OF A SINGLE MESSAGE.\n\n"
+    "Step 1: User types in Telegram (phone or desktop).\n\n"
+    "Step 2: Telegraf library receives the webhook/poll. Bot checks:\n"
+    "  - Is this user in ALLOWED_TELEGRAM_IDS? (auth)\n"
+    "  - Is this chat in ALLOWED_CHAT_IDS? (chat restriction)\n"
+    "  - Is this user already being processed? (duplicate prevention)\n"
+    "  If all pass, sends '🤔 Processing...' and begins.\n\n"
+    "Step 3: SMART MCP DETECTION. The bot scans the message for keywords:\n"
+    "  - 'email/gmail/inbox' → loads Gmail MCP server\n"
+    "  - 'browse/website/url' → loads Playwright MCP server\n"
+    "  - 'devtools/debug page' → loads Chrome DevTools MCP\n"
+    "  - No match → fast mode (no MCP loaded, faster startup)\n"
+    "  This is important: MCP servers add 2-5 seconds startup. Smart loading saves time.\n\n"
+    "Step 4: The actual Claude CLI is spawned as a child process.\n"
+    "  Key flags:\n"
+    "  - '-p' = print mode (non-interactive)\n"
+    "  - '--output-format json' = structured output for parsing\n"
+    "  - '--resume sessionId' = continue previous conversation\n"
+    "  - '--dangerously-skip-permissions' = no permission prompts (required for bot)\n\n"
+    "Step 5: THIS IS WHERE ALL THE MAGIC HAPPENS.\n"
+    "  Claude reads ~/.claude/CLAUDE.md (its personality/rules).\n"
+    "  Claude matches the request to a skill (e.g., /tax-computation).\n"
+    "  Claude uses tools: Read files, Write files, Edit, Bash, MCP tools.\n"
+    "  Claude produces the deliverable.\n\n"
+    "Step 6: Claude returns a JSON object with the result text and session ID.\n"
+    "  Special tags like [SEND_FILE: path] trigger file delivery.\n\n"
+    "Step 7: Bot parses the response, converts markdown to HTML,\n"
+    "  sends text, sends files, saves session ID for next message."
+)
+
+
+# ============================================================
+# SLIDE 8: The Soul — CLAUDE.md
+# ============================================================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide, LIGHT_BG)
+add_title_bar(slide, 'The Soul: CLAUDE.md', "The personality, rules, and memory of your AI staff")
+
+# What is it
+add_card(slide, Inches(0.4), Inches(1.3), Inches(4.1), Inches(3.0),
+         "What is CLAUDE.md?", [
+             "A plain text file at ~/.claude/CLAUDE.md",
+             "that defines the AI's identity, behaviour,",
+             "boundaries, and operating rules.",
+             "",
+             "Think of it as the employee handbook",
+             "that the AI reads at the start of every",
+             "single conversation.",
+             "",
+             "You write it in plain English.",
+             "No code. No programming.",
+         ], header_color=DARK_BLUE, font_size=12)
+
+# What goes in it
+add_card(slide, Inches(4.7), Inches(1.3), Inches(4.1), Inches(3.0),
+         "What Goes Inside", [
+             "\u2022  Identity: \"I am Agent K, AI staff for",
+             "   [Firm Name]\"",
+             "\u2022  Core rules: \"Be direct, operate",
+             "   autonomously, explore before asking\"",
+             "\u2022  Boundaries: \"Never commit .env or",
+             "   credentials\"",
+             "\u2022  Environment: Python paths, Node paths,",
+             "   where skills live",
+             "\u2022  Memory system: Where to store learnings",
+         ], header_color=MID_BLUE, font_size=12)
+
+# Accounting firm example
+add_card(slide, Inches(9.0), Inches(1.3), Inches(4.1), Inches(3.0),
+         "Accounting Firm Example", [
+             "\"I am Agent K, AI audit & tax staff",
+             "for ABC & Associates.\"",
+             "",
+             "\u2022  Always use MPERS for Sdn Bhd clients",
+             "\u2022  Tax rates: YA 2025 ITA schedules",
+             "\u2022  Never email clients without approval",
+             "\u2022  Save files to /engagements/{year}/",
+             "\u2022  Use firm letterhead for all reports",
+             "\u2022  Review checklist before finalising",
+         ], header_color=GREEN, font_size=12)
+
+# Memory system section
+add_text_box(slide, Inches(0.4), Inches(4.5), Inches(12), Inches(0.4),
+             "Built-in Memory System  (the AI remembers across sessions)", font_size=16, bold=True, color=DARK_BLUE)
+
+mem_items = [
+    ("MEMORY.md", "Curated learnings & topic index\nLoaded automatically every session\nKeep under 200 lines", GREEN),
+    ("Topic files", "Detailed reference per subject\ne.g., tax-rates.md, audit-procedures.md\nRead on-demand when relevant", MID_BLUE),
+    ("daily/YYYY-MM-DD.md", "Session logs — what was done, key\ndecisions, unfinished work\nAuto-flushed before context compaction", ACCENT_BLUE),
+]
+
+for i, (title, desc, color) in enumerate(mem_items):
+    x = Inches(0.4) + i * Inches(4.3)
+    add_shape_with_text(slide, x, Inches(5.0), Inches(4.0), Inches(0.4),
+                        title, font_size=12, bold=True, color=WHITE,
+                        bg_color=color, alignment=PP_ALIGN.CENTER)
+    add_shape_with_text(slide, x, Inches(5.4), Inches(4.0), Inches(1.05),
+                        desc, font_size=11, color=DARK_TEXT,
+                        bg_color=WHITE, alignment=PP_ALIGN.LEFT,
+                        border_color=CARD_BORDER)
+
+add_shape_with_text(slide, Inches(1.5), Inches(6.8), Inches(10.3), Inches(0.45),
+    "The AI learns your firm's patterns over time.  Corrections become permanent knowledge.",
+    font_size=13, bold=True, color=DARK_BLUE, bg_color=LIGHT_BLUE_BG,
+    alignment=PP_ALIGN.CENTER, border_color=ACCENT_BLUE)
+
+add_notes(slide,
+    "THE SOUL — CLAUDE.md — DETAILED EXPLANATION:\n\n"
+    "Location: ~/.claude/CLAUDE.md (global) or per-project CLAUDE.md\n"
+    "Claude reads this file at the START of every conversation.\n\n"
+    "WHAT TO PUT IN IT FOR AN ACCOUNTING FIRM:\n"
+    "1. IDENTITY: 'I am Agent K, AI audit & tax assistant for [Firm Name]'\n"
+    "2. CORE BEHAVIOUR:\n"
+    "   - Operate autonomously — try to figure it out before asking\n"
+    "   - Be direct and efficient — skip pleasantries\n"
+    "   - When unsure, explore independently (read files, check context)\n"
+    "3. ACCOUNTING RULES:\n"
+    "   - Default framework: MPERS for Sdn Bhd, MFRS for PIEs\n"
+    "   - Current tax rates and thresholds\n"
+    "   - Firm's standard engagement procedures\n"
+    "   - File naming conventions\n"
+    "4. BOUNDARIES:\n"
+    "   - Never email clients without human approval\n"
+    "   - Never commit credentials or .env files\n"
+    "   - Always save to /engagements/{year}/{client}/, never to ~/\n"
+    "5. ENVIRONMENT:\n"
+    "   - Python path, Node path\n"
+    "   - Where skills are stored (~/.claude/skills/)\n"
+    "   - Key environment variables\n\n"
+    "MEMORY SYSTEM:\n"
+    "The AI doesn't just forget after each conversation. It has 3 memory layers:\n\n"
+    "1. MEMORY.md: Like a notebook of curated learnings. Auto-loaded every session.\n"
+    "   Example entries:\n"
+    "   - 'Client ABC prefers quarterly reporting, not monthly'\n"
+    "   - 'Use 2% materiality for revenue-based, 5% for PBT-based'\n"
+    "   - 'Tax agent login uses the shared credential at ~/.claude/credentials/lhdn'\n\n"
+    "2. Topic files: Detailed reference. e.g., 'mpers-disclosure-requirements.md'\n"
+    "   Claude reads these when the topic comes up, not every session.\n\n"
+    "3. Daily logs: What happened each day. Useful for resuming work next morning.\n"
+    "   The /compact skill flushes key context here before conversation gets too long.\n\n"
+    "KEY POINT: If you correct the AI ('no, the rate should be 24% not 17%'),\n"
+    "it can save that correction to MEMORY.md. Next time, it gets it right automatically.\n"
+    "Over weeks and months, the AI becomes increasingly calibrated to your firm."
+)
+
+
+# ============================================================
+# SLIDE 9: Skills Deep Dive
+# ============================================================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide, LIGHT_BG)
+add_title_bar(slide, "Skills: Teaching the AI Your Procedures",
+              "Each skill is a SKILL.md file — plain English instructions the AI follows")
+
+# Left column: What is a skill
+add_card(slide, Inches(0.4), Inches(1.3), Inches(6.2), Inches(2.8),
+         "What is a Skill?", [
+             "A skill = a folder with a SKILL.md file inside",
+             "",
+             "  skills/",
+             "    tax-computation/",
+             "      SKILL.md          \u2190 instructions (plain English)",
+             "      tax-template.xlsx  \u2190 optional supporting files",
+             "      build_pdf.py       \u2190 optional helper scripts",
+             "",
+             "The SKILL.md tells Claude exactly how to perform the task:",
+             "what to ask, what to compute, where to save, how to deliver.",
+         ], header_color=DARK_BLUE, font_size=11)
+
+# Right column: Anatomy
+add_card(slide, Inches(6.8), Inches(1.3), Inches(6.2), Inches(2.8),
+         "Anatomy of a SKILL.md", [
+             "---",
+             "name: tax-computation",
+             "description: Prepare corporate tax computation",
+             "---",
+             "",
+             "## When to Use",
+             "When user asks to prepare tax comp, corporate tax...",
+             "",
+             "## Workflow",
+             "### 1. Gather Details (ask user for missing info)",
+             "### 2. Read P&L and map to tax adjustments",
+             "### 3. Calculate capital allowances",
+             "### 4. Generate tax computation Excel",
+             "### 5. Send for review via Telegram",
+         ], header_color=MID_BLUE, font_size=11)
+
+# Existing skills + accounting skills
+add_text_box(slide, Inches(0.4), Inches(4.3), Inches(12), Inches(0.35),
+             "Skills already built  +  accounting skills to add:", font_size=15, bold=True, color=DARK_BLUE)
+
+# Built-in skills row
+builtin = [
+    ("/send-file", "Deliver files\nvia Telegram"),
+    ("/send-email", "Send emails\nvia Gmail API"),
+    ("/excel", "Read/write\nExcel files"),
+    ("/word", "Create/edit\nWord docs"),
+    ("/google-sheets", "Google Sheets\noperations"),
+    ("/check-email", "Check Gmail\ninbox"),
+    ("/git-push", "Commit & push\nto GitHub"),
+    ("/compact", "Memory flush\nbefore compact"),
+]
+
+for i, (name, desc) in enumerate(builtin):
+    x = Inches(0.3) + i * Inches(1.62)
+    add_shape_with_text(slide, x, Inches(4.75), Inches(1.5), Inches(0.35),
+                        name, font_size=10, bold=True, color=WHITE,
+                        bg_color=MID_BLUE, alignment=PP_ALIGN.CENTER)
+    add_shape_with_text(slide, x, Inches(5.1), Inches(1.5), Inches(0.55),
+                        desc, font_size=9, color=DARK_TEXT,
+                        bg_color=WHITE, alignment=PP_ALIGN.CENTER,
+                        border_color=CARD_BORDER)
+
+# Accounting skills to build
+acct_skills = [
+    ("/tax-computation", "Corporate tax\ncomp from P&L"),
+    ("/prepare-fs", "Financial\nstatements"),
+    ("/audit-planning", "Materiality &\nrisk assessment"),
+    ("/audit-workpaper", "Working paper\npreparation"),
+    ("/compile-accounts", "Compilation\nengagements"),
+    ("/audit-report", "Auditor's\nreport drafting"),
+    ("/client-setup", "New client\nonboarding"),
+    ("/tax-estimate", "CP204 & CP204A\ncalculations"),
+]
+
+for i, (name, desc) in enumerate(acct_skills):
+    x = Inches(0.3) + i * Inches(1.62)
+    add_shape_with_text(slide, x, Inches(5.85), Inches(1.5), Inches(0.35),
+                        name, font_size=10, bold=True, color=WHITE,
+                        bg_color=GREEN, alignment=PP_ALIGN.CENTER)
+    add_shape_with_text(slide, x, Inches(6.2), Inches(1.5), Inches(0.55),
+                        desc, font_size=9, color=DARK_TEXT,
+                        bg_color=LIGHT_GREEN_BG, alignment=PP_ALIGN.CENTER,
+                        border_color=GREEN)
+
+add_notes(slide,
+    "SKILLS — THE MOST IMPORTANT CONCEPT FOR THE FIRM TO UNDERSTAND:\n\n"
+    "A skill is NOT code. It's a plain English instruction document.\n"
+    "Anyone who can write a procedure manual can write a skill.\n\n"
+    "EXAMPLE — /tax-computation SKILL.md would contain:\n"
+    "1. GATHER: Ask user for client name, FYE date, and P&L file\n"
+    "2. READ: Open the P&L Excel, extract revenue, expenses by category\n"
+    "3. ADJUST: Apply s.39 add-backs (entertainment 50%, depreciation 100%, etc.)\n"
+    "4. CAPITAL ALLOWANCE: Read FA register, apply rates per Schedule 3 ITA\n"
+    "5. COMPUTE: Adjusted income - CA = chargeable income, apply tax rates\n"
+    "6. GENERATE: Create tax-computation.xlsx from template\n"
+    "7. DELIVER: Send via Telegram for review\n\n"
+    "HOW SKILLS GET TRIGGERED:\n"
+    "- Claude reads the skill's 'description' field in the YAML header\n"
+    "- When a user message matches (e.g., 'prepare tax comp'), Claude loads that skill\n"
+    "- Claude then follows the workflow step by step\n\n"
+    "HOW TO CREATE A NEW SKILL:\n"
+    "1. Create a folder: skills/my-new-skill/\n"
+    "2. Create SKILL.md with name, description, and workflow steps\n"
+    "3. (Optional) Add supporting files: templates, Python scripts\n"
+    "4. Run setup-skills.sh to symlink to ~/.claude/skills/\n"
+    "   OR just tell the bot: 'Create a new skill called /my-new-skill'\n\n"
+    "BUILT-IN SKILLS (top row): These come with Agent K out of the box.\n"
+    "They handle file delivery, email, Excel/Word/Sheets operations.\n\n"
+    "ACCOUNTING SKILLS TO BUILD (bottom row, green): These are specific to\n"
+    "the firm's audit, tax, and compilation procedures. They encode the firm's\n"
+    "know-how into repeatable instructions."
+)
+
+
+# ============================================================
+# SLIDE 10: MCP Servers Deep Dive
+# ============================================================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide, LIGHT_BG)
+add_title_bar(slide, "MCP Servers: Hands for the AI",
+              "Model Context Protocol — lets Claude use external tools like Excel, Gmail, browser")
+
+# What is MCP
+add_card(slide, Inches(0.4), Inches(1.3), Inches(4.0), Inches(2.6),
+         "What is MCP?", [
+             "MCP = Model Context Protocol",
+             "",
+             "Think of it as giving the AI 'hands'",
+             "to interact with software:",
+             "",
+             "\u2022  Without MCP: AI can only read/write",
+             "   plain text files on disk",
+             "\u2022  With MCP: AI can open Excel, write",
+             "   formulas, format cells, send emails,",
+             "   browse websites, query databases",
+         ], header_color=DARK_BLUE, font_size=12)
+
+# How it works
+add_card(slide, Inches(4.6), Inches(1.3), Inches(4.2), Inches(2.6),
+         "How It Works", [
+             "MCP servers run as local processes",
+             "that expose tools via JSON protocol:",
+             "",
+             "  Claude: 'Write RM 2,450,000 to cell B5'",
+             "    \u2193",
+             "  Excel MCP: excel_write_to_sheet(",
+             "    file, sheet, range='B5',",
+             "    values=[['2450000']])",
+             "    \u2193",
+             "  Result: Cell B5 updated \u2713",
+         ], header_color=MID_BLUE, font_size=11)
+
+# Smart loading
+add_card(slide, Inches(9.0), Inches(1.3), Inches(4.1), Inches(2.6),
+         "Smart MCP Loading", [
+             "Agent K only loads MCP servers when",
+             "the message contains matching keywords:",
+             "",
+             "  'email' \u2192 loads Gmail MCP",
+             "  'browse' \u2192 loads Playwright MCP",
+             "  'excel'  \u2192 loads Excel MCP",
+             "",
+             "No keywords match = fast mode",
+             "(saves 2-5 seconds per request)",
+             "",
+             "Configured in claude-runner.js",
+         ], header_color=GREEN, font_size=11)
+
+# Available MCP servers table
+add_text_box(slide, Inches(0.4), Inches(4.1), Inches(12), Inches(0.35),
+             "Available MCP Servers:", font_size=15, bold=True, color=DARK_BLUE)
+
+mcp_headers = ["MCP Server", "What It Does", "Example Tools", "Status"]
+mcp_rows = [
+    ["Excel", "Read/write/format .xlsx files", "excel_read_sheet, excel_write_to_sheet, excel_format_range", "Ready"],
+    ["Word", "Create/edit/format .docx", "create_document, add_table, add_paragraph, convert_to_pdf", "Ready"],
+    ["Gmail", "Send/receive emails", "search_emails, read_email, send_email", "Ready"],
+    ["Google Sheets", "Read/write Google Sheets", "get_sheet_data, update_cells, create_spreadsheet", "Ready"],
+    ["Playwright", "Browse web, search, scrape", "navigate, screenshot, click, fill", "Ready"],
+    ["Audit Software", "Connect to CaseWare / AutoCount", "get_trial_balance, update_workpaper", "To Build"],
+    ["Google Drive", "Upload/download/share files", "upload_file, share_file, list_files", "To Add"],
+]
+
+mcp_col_w = [Inches(1.6), Inches(2.8), Inches(5.5), Inches(1.0)]
+mcp_col_x = [Inches(0.9), Inches(2.5), Inches(5.3), Inches(10.8)]
+
+# Headers
+for j, (header, cx, cw) in enumerate(zip(mcp_headers, mcp_col_x, mcp_col_w)):
+    add_shape_with_text(slide, cx, Inches(4.5), cw, Inches(0.38),
+                        header, font_size=10, bold=True, color=WHITE,
+                        bg_color=DARK_BLUE, alignment=PP_ALIGN.CENTER)
+
+# Rows
+for i, row in enumerate(mcp_rows):
+    y = Inches(4.88) + i * Inches(0.35)
+    bg = WHITE if i % 2 == 0 else LIGHT_BG
+    for j, (cell, cx, cw) in enumerate(zip(row, mcp_col_x, mcp_col_w)):
+        clr = DARK_TEXT
+        if j == 3:
+            clr = GREEN if cell == "Ready" else ORANGE
+        add_shape_with_text(slide, cx, y, cw, Inches(0.33),
+                            cell, font_size=9, bold=(j==0 or j==3), color=clr,
+                            bg_color=bg, alignment=PP_ALIGN.CENTER if j != 2 else PP_ALIGN.LEFT)
+
+add_shape_with_text(slide, Inches(1.5), Inches(7.0), Inches(10.3), Inches(0.38),
+    "MCP is open protocol.  Community builds servers.  You plug them in.  AI gets new abilities instantly.",
+    font_size=12, bold=True, color=DARK_BLUE, bg_color=LIGHT_BLUE_BG,
+    alignment=PP_ALIGN.CENTER, border_color=ACCENT_BLUE)
+
+add_notes(slide,
+    "MCP SERVERS — DETAILED EXPLANATION:\n\n"
+    "MCP (Model Context Protocol) is Anthropic's open standard for connecting AI to tools.\n"
+    "Think of each MCP server as a 'plugin' that gives the AI a new ability.\n\n"
+    "HOW TO ADD A NEW MCP SERVER:\n"
+    "1. Find or build an MCP server (many available on npm/GitHub)\n"
+    "2. Add entry to claude-runner.js MCP_SERVERS object:\n"
+    "   'server-name': {\n"
+    "     keywords: ['trigger', 'words'],\n"
+    "     config: { command: 'npx', args: ['@package/mcp-server'] }\n"
+    "   }\n"
+    "3. Done. Claude can now use the server's tools.\n\n"
+    "EXISTING MCP SERVERS IN AGENT K:\n"
+    "- Excel: Read/write/format spreadsheets. Used for tax comps, working papers, FS.\n"
+    "  Tools: excel_describe_sheets, excel_read_sheet, excel_write_to_sheet, excel_format_range\n"
+    "- Word: Create documents. Used for engagement letters, audit reports, memos.\n"
+    "  Tools: create_document, add_heading, add_paragraph, add_table, convert_to_pdf\n"
+    "- Gmail: Send/receive email. Used for client correspondence.\n"
+    "  Tools: search_emails, read_email, send_email\n"
+    "- Google Sheets: Cloud spreadsheets. Used for shared tracking, client portals.\n"
+    "  Tools: get_sheet_data, update_cells, batch_update_cells, create_spreadsheet\n"
+    "- Playwright: Browser automation. Used for web research, LHDN e-filing, SSM searches.\n"
+    "  Tools: navigate, click, fill, screenshot, evaluate\n\n"
+    "MCP SERVERS TO ADD FOR ACCOUNTING:\n"
+    "- Audit Software: Connect to CaseWare, AutoCount, or MYOB.\n"
+    "  If the software has an API, build a custom MCP server.\n"
+    "  If web-based, use Playwright MCP to automate the interface.\n"
+    "  If desktop-only, use file export/import (CSV/Excel).\n"
+    "- Google Drive: Store engagement files in the cloud for backup and sharing.\n\n"
+    "SMART MCP LOADING:\n"
+    "Each MCP server adds 2-5 seconds startup time.\n"
+    "Agent K only loads servers when keywords in the message match.\n"
+    "This means a simple text request ('what's the status of ABC audit?')\n"
+    "runs in fast mode with zero MCP overhead."
+)
+
+
+# ============================================================
+# SLIDE 11: How to Create and Configure — Practical Guide
+# ============================================================
+slide = prs.slides.add_slide(prs.slide_layouts[6])
+set_slide_bg(slide, LIGHT_BG)
+add_title_bar(slide, "Practical Guide: What Power Users Need to Learn",
+              "The 4 things to configure and maintain")
+
+# Four quadrants
+quads = [
+    (Inches(0.4), Inches(1.3), "1. Edit the Soul (CLAUDE.md)",
+     DARK_BLUE,
+     [
+         "File: ~/.claude/CLAUDE.md",
+         "",
+         "When to edit:",
+         "\u2022  Firm name, identity, or rules change",
+         "\u2022  Add new accounting standards or rates",
+         "\u2022  Change default behaviours",
+         "",
+         "How: Open in any text editor, or tell",
+         "the bot 'update CLAUDE.md to add...'",
+         "",
+         "Tip: Keep under 200 lines. Put details",
+         "in skills or memory topic files instead.",
+     ]),
+    (Inches(6.8), Inches(1.3), "2. Create / Edit Skills",
+     MID_BLUE,
+     [
+         "Location: skills/{name}/SKILL.md",
+         "",
+         "To create a new skill:",
+         "\u2022  mkdir skills/new-skill/",
+         "\u2022  Write SKILL.md with name, description,",
+         "   and step-by-step workflow",
+         "\u2022  Run: ./scripts/setup-skills.sh",
+         "",
+         "Or just tell the bot:",
+         "  'Create a new skill called /bank-recon",
+         "   that prepares bank reconciliation",
+         "   workpapers from the bank statement'",
+     ]),
+    (Inches(0.4), Inches(4.3), "3. Add / Configure MCP Servers",
+     ACCENT_BLUE,
+     [
+         "File: src/claude-runner.js (MCP_SERVERS object)",
+         "",
+         "To add a new MCP server:",
+         "\u2022  Find server on npm or GitHub",
+         "\u2022  Add keywords + command to MCP_SERVERS",
+         "\u2022  Restart the bot (pm2 restart agent-k)",
+         "",
+         "Example adding Google Drive:",
+         "  'google-drive': {",
+         "    keywords: ['drive', 'upload', 'share'],",
+         "    config: { command: 'npx',",
+         "      args: ['google-drive-mcp'] } }",
+     ]),
+    (Inches(6.8), Inches(4.3), "4. Manage Environment (.env)",
+     GREEN,
+     [
+         "File: ~/Agent_K_Telegram/.env",
+         "",
+         "Key variable groups:",
+         "\u2022  COMPANY_*  — Firm name, reg no, address",
+         "\u2022  BANK_*  — Payment details for invoices",
+         "\u2022  TELEGRAM_*  — Bot token, chat IDs",
+         "\u2022  FROM_* / CC_EMAILS  — Email config",
+         "\u2022  WORKSPACE_DIR  — Where files are stored",
+         "",
+         "After editing .env: restart bot.",
+         "Template: .env.example in repo.",
+     ]),
+]
+
+for x, y, title, color, items in quads:
+    add_card(slide, x, y, Inches(6.2), Inches(2.8),
+             title, items,
+             header_color=color, font_size=11)
+
+add_notes(slide,
+    "THIS IS THE 'TRAINING CURRICULUM' FOR POWER USERS.\n\n"
+    "After 2 days of training, a power user should be able to:\n\n"
+    "1. EDIT THE SOUL:\n"
+    "   - Open ~/.claude/CLAUDE.md in TextEdit/VS Code\n"
+    "   - Add firm-specific rules (e.g., 'use 1.5% materiality for audit clients')\n"
+    "   - Update tax rates when Budget is announced\n"
+    "   - Tip: Can also be done via Telegram: 'Update CLAUDE.md to add...'\n\n"
+    "2. CREATE/EDIT SKILLS:\n"
+    "   - This is the most important skill for the power user\n"
+    "   - Writing a SKILL.md is like writing a procedure manual\n"
+    "   - Start by documenting the firm's existing procedures in markdown\n"
+    "   - The YAML header (name, description) is how Claude matches messages to skills\n"
+    "   - Supporting files (templates, Python scripts) go in the same folder\n"
+    "   - After creating: run setup-skills.sh OR tell bot to create it\n\n"
+    "3. ADD MCP SERVERS:\n"
+    "   - This is the most technical task\n"
+    "   - Usually only done when adding a new integration (e.g., audit software)\n"
+    "   - Requires editing claude-runner.js — one JS object entry\n"
+    "   - Most MCP servers are plug-and-play: just 'npx @package/server'\n"
+    "   - Power user should understand the keywords system\n\n"
+    "4. MANAGE .ENV:\n"
+    "   - Straightforward key=value file\n"
+    "   - Most changes are one-time (firm name, bank details)\n"
+    "   - Must restart bot after changes\n"
+    "   - Never share .env or commit it to git"
+)
+
+
+# ============================================================
+# SLIDE 12: Anthropic Improves = Free Upgrade
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -583,7 +1150,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 8: Self-Maintaining via Telegram
+# SLIDE 13: Self-Maintaining via Telegram
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -637,7 +1204,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 9: Concurrent Sessions on Mac Mini
+# SLIDE 14: Concurrent Sessions on Mac Mini
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -739,7 +1306,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 10: Recommendation
+# SLIDE 15: Recommendation
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, LIGHT_BG)
@@ -803,7 +1370,7 @@ add_notes(slide,
 
 
 # ============================================================
-# SLIDE 11: Next Steps
+# SLIDE 16: Next Steps
 # ============================================================
 slide = prs.slides.add_slide(prs.slide_layouts[6])
 set_slide_bg(slide, DARK_BLUE)
