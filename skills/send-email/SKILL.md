@@ -60,6 +60,65 @@ From the result, extract:
 - **Reply-all by default** — include all original To/CC recipients so everyone stays in the loop
 - The reply will appear in the same Gmail thread, so the recipient sees the full conversation history
 
+## Usage — Calendar Invitation
+
+Send a proper Google Calendar invite that shows up as an event in the recipient's calendar.
+
+### Step 1: Generate the .ics file
+
+Write a valid iCalendar (.ics) file with all required fields. Example:
+
+```
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//AiTraining2U//Atlas//EN
+CALSCALE:GREGORIAN
+METHOD:REQUEST
+BEGIN:VTIMEZONE
+TZID:Asia/Kuala_Lumpur
+BEGIN:STANDARD
+DTSTART:19700101T000000
+TZOFFSETFROM:+0800
+TZOFFSETTO:+0800
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+UID:unique-id-here@aitraining2u.com
+DTSTAMP:20260301T120000Z
+DTSTART;TZID=Asia/Kuala_Lumpur:20260315T140000
+DTEND;TZID=Asia/Kuala_Lumpur:20260315T160000
+SUMMARY:Meeting Title
+DESCRIPTION:Meeting description here
+LOCATION:Meeting Room / Zoom link
+ORGANIZER;CN=Atlas (AiTraining2U):mailto:atlas.aitraining2u@gmail.com
+ATTENDEE;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:person@example.com
+STATUS:CONFIRMED
+SEQUENCE:0
+END:VEVENT
+END:VCALENDAR
+```
+
+**Required fields**: UID (unique per event), DTSTAMP, DTSTART, DTEND, SUMMARY, METHOD:REQUEST, ORGANIZER, ATTENDEE(s), VTIMEZONE.
+
+### Step 2: Send with --ics flag
+
+```bash
+~/.local/bin/uv run --with google-api-python-client --with google-auth \
+  python3 ~/Agent_K_Telegram/skills/send-email/scripts/send_email.py \
+  --to person@example.com \
+  --subject "Meeting: Title — Date & Time" \
+  --html '<h2>You are invited!</h2><p>Details here...</p>' \
+  --ics @/tmp/invitation.ics
+```
+
+The `--ics` flag accepts either:
+- `@/path/to/file.ics` — reads .ics content from a file
+- Raw iCalendar string (inline)
+
+The script will:
+1. Embed the calendar as a `text/calendar; method=REQUEST` MIME part (triggers Gmail's calendar UI)
+2. Attach the .ics file for manual import in other clients
+
 ## Arguments
 
 | Arg | Required | Description |
@@ -72,6 +131,7 @@ From the result, extract:
 | `--reply-to` | No | Reply-To address if different from sender |
 | `--thread-id` | No | Gmail thread ID — reply lands in same thread |
 | `--in-reply-to` | No | Message-ID header of the email being replied to |
+| `--ics` | No | iCalendar content string or `@file.ics` — sends as calendar invitation |
 
 ## From Header
 

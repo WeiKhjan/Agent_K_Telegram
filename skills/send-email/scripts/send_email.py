@@ -45,7 +45,8 @@ def get_service():
 
 def send(to: list, subject: str, html_body: str, cc: list = None,
          attachments: list = None, reply_to: str = None,
-         thread_id: str = None, in_reply_to: str = None):
+         thread_id: str = None, in_reply_to: str = None,
+         ics_content: str = None):
     msg = MIMEMultipart("mixed")
     msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
     msg["To"]      = ", ".join(to)
@@ -58,10 +59,22 @@ def send(to: list, subject: str, html_body: str, cc: list = None,
         msg["In-Reply-To"] = in_reply_to
         msg["References"]  = in_reply_to
 
-    # HTML body
+    # Body: HTML + optional calendar invite
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(html_body, "html", "utf-8"))
+    if ics_content:
+        cal_part = MIMEText(ics_content, "calendar; method=REQUEST", "utf-8")
+        alt.attach(cal_part)
     msg.attach(alt)
+
+    # .ics file attachment (so recipients can also download/import manually)
+    if ics_content:
+        ics_attach = MIMEBase("application", "ics")
+        ics_attach.set_payload(ics_content.encode("utf-8"))
+        encoders.encode_base64(ics_attach)
+        ics_attach.add_header("Content-Disposition", "attachment",
+                              filename="invitation.ics")
+        msg.attach(ics_attach)
 
     # Attachments
     for path in (attachments or []):
@@ -98,6 +111,7 @@ if __name__ == "__main__":
     parser.add_argument("--reply-to",    default=None)
     parser.add_argument("--thread-id",   default=None, help="Gmail thread ID for reply")
     parser.add_argument("--in-reply-to", default=None, help="Message-ID header of email being replied to")
+    parser.add_argument("--ics",        default=None, help="iCalendar (.ics) content string or @file.ics to read from file")
     args = parser.parse_args()
 
     html = args.html
@@ -105,5 +119,10 @@ if __name__ == "__main__":
         with open(html[1:]) as f:
             html = f.read()
 
+    ics = args.ics
+    if ics and ics.startswith("@"):
+        with open(ics[1:]) as f:
+            ics = f.read()
+
     send(args.to, args.subject, html, args.cc, args.attach, args.reply_to,
-         args.thread_id, args.in_reply_to)
+         args.thread_id, args.in_reply_to, ics)
