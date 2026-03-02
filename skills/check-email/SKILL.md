@@ -21,7 +21,7 @@ Present emails as:
 
 ### Unread (COUNT)
 1. **From:** sender | **Subject:** subject | **Time:** time
-   Brief preview...
+   **Summary:** 2-3 sentence concise summary of the email content — what was said, what was asked, any key details (amounts, dates, names).
 
 ### Action Required
 - [email subject] — what needs to be done
@@ -29,6 +29,8 @@ Present emails as:
 ### FYI Only
 - [email subject] — brief note
 ```
+
+> Always write a proper content summary, not just a subject repeat or vague preview.
 
 ## Arguments
 - No args = check unread emails
