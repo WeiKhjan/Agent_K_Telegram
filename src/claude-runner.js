@@ -146,7 +146,8 @@ const runClaude = (message, { onProgress, signal } = {}) => {
     const cwd = process.env.WORKSPACE_DIR || process.cwd();
     const complex = isComplexTask(message);
     const model = complex ? 'opus' : 'sonnet';
-    const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', model, '--max-turns', '30'];
+    const maxTurns = complex ? '50' : '30';
+    const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', model, '--max-turns', maxTurns];
 
     // Smart MCP: only load servers matching the message
     const mcpServers = detectMcpServers(message);
@@ -312,8 +313,13 @@ const runClaude = (message, { onProgress, signal } = {}) => {
           : null;
         if (!text) {
           const denied = resultEvent.permission_denials?.map(d => d.tool_name).join(', ');
-          const fallback = denied ? `⚠️ Claude couldn't complete — permission denied for: ${denied}` : '⚠️ Claude returned an empty response. Try again.';
-          logToFile('WARN', `Empty response. Denied tools: ${denied || 'none'}. Session: ${resultEvent.session_id || 'none'}`);
+          const hitMaxTurns = resultEvent.stop_reason === 'max_turns' || resultEvent.num_turns >= parseInt(maxTurns);
+          const fallback = denied
+            ? `⚠️ Claude couldn't complete — permission denied for: ${denied}`
+            : hitMaxTurns
+            ? `⚠️ Max turns (${maxTurns}) reached — task too long. Try breaking it into smaller steps.`
+            : '⚠️ Claude returned an empty response. Try again.';
+          logToFile('WARN', `Empty response. stop_reason=${resultEvent.stop_reason || 'none'} Denied tools: ${denied || 'none'}. Session: ${resultEvent.session_id || 'none'}`);
           resolve({ response: fallback + tokenFooter, sessionId: resultEvent.session_id || null });
         } else {
           logToFile('OK', `Response: ${text.length} chars | Session: ${resultEvent.session_id || 'none'}`);
