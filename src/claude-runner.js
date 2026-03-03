@@ -195,6 +195,7 @@ const runClaude = (message, { onProgress, signal } = {}) => {
     let stderr = '';
     let killed = false;
     let resultEvent = null; // The final "result" JSON event
+    let lastAssistantText = ''; // Track last assistant text for tool-call-ending sessions
     let lastOutputTime = Date.now();
     // Accumulate token usage across all turns
     let totalUsage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
@@ -250,6 +251,13 @@ const runClaude = (message, { onProgress, signal } = {}) => {
           const ev = JSON.parse(trimmed);
           if (ev.type === 'result') {
             resultEvent = ev;
+          }
+          // Track last assistant text content (for when session ends on a tool call)
+          if (ev.type === 'assistant' && ev.message?.content) {
+            const textBlocks = ev.message.content.filter(b => b.type === 'text' && b.text);
+            if (textBlocks.length > 0) {
+              lastAssistantText = textBlocks.map(b => b.text).join('\n');
+            }
           }
           // Accumulate token usage from assistant events
           const usage = ev.message?.usage || ev.usage;
@@ -310,6 +318,7 @@ const runClaude = (message, { onProgress, signal } = {}) => {
       if (resultEvent) {
         const text = (resultEvent.result != null && resultEvent.result !== '') ? resultEvent.result
           : (resultEvent.message != null && resultEvent.message !== '') ? resultEvent.message
+          : (lastAssistantText !== '') ? lastAssistantText
           : null;
         if (!text) {
           const denied = resultEvent.permission_denials?.map(d => d.tool_name).join(', ');
@@ -322,7 +331,10 @@ const runClaude = (message, { onProgress, signal } = {}) => {
           logToFile('WARN', `Empty response. stop_reason=${resultEvent.stop_reason || 'none'} Denied tools: ${denied || 'none'}. Session: ${resultEvent.session_id || 'none'}`);
           resolve({ response: fallback + tokenFooter, sessionId: resultEvent.session_id || null });
         } else {
-          logToFile('OK', `Response: ${text.length} chars | Session: ${resultEvent.session_id || 'none'}`);
+          const source = (resultEvent.result != null && resultEvent.result !== '') ? 'result'
+            : (resultEvent.message != null && resultEvent.message !== '') ? 'message'
+            : 'lastAssistantText';
+          logToFile('OK', `Response (${source}): ${text.length} chars | Session: ${resultEvent.session_id || 'none'}`);
           resolve({ response: text + tokenFooter, sessionId: resultEvent.session_id || null });
         }
       } else {
