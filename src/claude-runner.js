@@ -66,6 +66,12 @@ const COMPLEX_PATTERNS = [
   // Code tasks
   /refactor|debug.*and.*fix|implement.*feature/i,
   /write.*script.*that|build.*a.*tool/i,
+  // Data extraction & consolidation — multi-sheet/file reads
+  /consolidat|all.*sheet|each.*sheet|multiple.*sheet|cross.*reference/i,
+  /extract.*from.*excel|read.*excel|from.*spreadsheet/i,
+  /all.*candidate|all.*participant|all.*employee|all.*staff/i,
+  /generate.*t3|hrdc|psmb|sbl.khas|attendance.*list/i,
+  /recon|reconcil/i,
   // Explicit upgrade
   /use opus|opus mode|smart mode/i,
 ];
@@ -146,7 +152,7 @@ const runClaude = (message, { onProgress, signal } = {}) => {
     const cwd = process.env.WORKSPACE_DIR || process.cwd();
     const complex = isComplexTask(message);
     const model = complex ? 'opus' : 'sonnet';
-    const maxTurns = complex ? '50' : '30';
+    const maxTurns = complex ? '70' : '30';
     const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', model, '--max-turns', maxTurns];
 
     // Smart MCP: only load servers matching the message

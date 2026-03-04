@@ -45,11 +45,13 @@ const markdownToHtml = (text) => {
     .replace(/&lt;i&gt;/g, '<i>')
     .replace(/&lt;\/i&gt;/g, '</i>')
     .replace(/&lt;u&gt;/g, '<u>')
-    .replace(/&lt;\/u&gt;/g, '</u>');
+    .replace(/&lt;\/u&gt;/g, '</u>')
+    .replace(/&lt;pre&gt;/g, '<pre>')
+    .replace(/&lt;\/pre&gt;/g, '</pre>');
 
-  // Apply markdown formatting
-  text = text
-    // Code blocks
+  // Apply markdown formatting — but skip inside <pre> blocks
+  const applyMarkdown = (t) => t
+    // Code blocks (markdown ```)
     .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre>$2</pre>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     // Bold
@@ -74,18 +76,26 @@ const markdownToHtml = (text) => {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // Final cleanup: remove any leftover raw pipe-only lines or table separators
-  text = text
-    .split('\n')
-    .filter(line => {
-      const trimmed = line.trim();
-      // Remove lines that are just pipes and dashes (table separators)
-      if (/^[\|\-\s:]+$/.test(trimmed) && trimmed.includes('|')) return false;
-      // Remove lines that are just dashes (leftover separators)
-      if (/^[-─]+$/.test(trimmed)) return false;
-      return true;
-    })
-    .join('\n');
+  // Split by <pre> blocks, only apply markdown to non-pre parts
+  const preParts = text.split(/(<pre>[\s\S]*?<\/pre>)/g);
+  text = preParts.map(part =>
+    part.startsWith('<pre>') ? part : applyMarkdown(part)
+  ).join('');
+
+  // Final cleanup: remove any leftover raw pipe-only lines or table separators (outside <pre>)
+  const finalParts = text.split(/(<pre>[\s\S]*?<\/pre>)/g);
+  text = finalParts.map(part => {
+    if (part.startsWith('<pre>')) return part;
+    return part
+      .split('\n')
+      .filter(line => {
+        const trimmed = line.trim();
+        if (/^[\|\-\s:]+$/.test(trimmed) && trimmed.includes('|')) return false;
+        if (/^[-─]+$/.test(trimmed)) return false;
+        return true;
+      })
+      .join('\n');
+  }).join('');
 
   // Clean up spacing around formatted entries
   text = text
@@ -131,7 +141,7 @@ const parseTableRow = (row) => {
   return cleaned.split('|').map(cell => cell.trim());
 };
 
-// Convert markdown tables to a cleaner readable format
+// Convert markdown tables to monospace <pre> blocks with aligned columns
 const convertTablesToReadable = (text) => {
   const lines = text.split('\n');
   const result = [];
@@ -142,132 +152,52 @@ const convertTablesToReadable = (text) => {
 
     // Check if this looks like a table row or separator
     if (isTableRow(line) || isTableSeparator(line)) {
-      const tableLines = [];
-      let hasHeader = false;
       let headerLine = null;
+      const dataRows = [];
 
       // Collect all consecutive table-related lines
       while (i < lines.length) {
         const currentLine = lines[i];
         if (isTableSeparator(currentLine)) {
-          // If we have collected lines before separator, first one is header
-          if (tableLines.length === 1 && !hasHeader) {
-            hasHeader = true;
-            headerLine = tableLines[0];
-            tableLines.length = 0; // Clear - we'll only keep data rows
+          // Line before separator is the header
+          if (dataRows.length === 1 && !headerLine) {
+            headerLine = dataRows.shift();
           }
           i++;
           continue;
         }
         if (isTableRow(currentLine)) {
-          tableLines.push(currentLine.trim());
+          dataRows.push(currentLine.trim());
           i++;
         } else {
           break;
         }
       }
 
-      // Process the table
-      if (tableLines.length > 0 || headerLine) {
-        const headers = headerLine ? parseTableRow(headerLine) : null;
-        const dataRows = tableLines.map(l => parseTableRow(l));
+      // Parse all rows
+      const headerCells = headerLine ? parseTableRow(headerLine) : null;
+      const parsedRows = dataRows.map(r => parseTableRow(r));
 
-        // If no separator found, check if first row looks like headers
-        if (!headers && dataRows.length > 1) {
-          const firstRow = dataRows[0];
-          const looksLikeHeader = firstRow.some(h =>
-            /^(event|date|status|name|title|id|type|time|description|value|action|result|count|total|item|category)$/i.test(h)
+      // If no separator found, check if first row looks like headers
+      if (!headerCells && parsedRows.length > 1) {
+        const firstRow = parsedRows[0];
+        const looksLikeHeader = firstRow.some(h =>
+          /^(event|date|status|name|title|id|type|time|description|value|action|result|count|total|item|category|no|invoice|client|amount|qty|price|rate)$/i.test(h.replace(/[.#]/g, ''))
+        );
+        if (looksLikeHeader) {
+          // Treat first row as header
+          const hdr = parsedRows.shift();
+          return convertTablesToReadable(
+            [...result, buildMonoTable(hdr, parsedRows), ...lines.slice(i)].join('\n')
           );
-          if (looksLikeHeader) {
-            const headerRow = dataRows.shift();
-            result.push('');
-            for (let idx = 0; idx < dataRows.length; idx++) {
-              const row = dataRows[idx];
-              const entryLines = [];
-              if (row[0]) {
-                entryLines.push(`▸ <b>${row[0]}</b>`);
-              }
-              for (let j = 1; j < row.length && j < headerRow.length; j++) {
-                const value = row[j] || '';
-                const header = headerRow[j] || '';
-                if (value) {
-                  entryLines.push(`   ${header}: ${value}`);
-                }
-              }
-              result.push(entryLines.join('\n'));
-              if (idx < dataRows.length - 1) result.push('');
-            }
-            result.push('');
-            continue;
-          }
         }
+      }
 
-        if (headers && dataRows.length > 0) {
-          result.push(''); // spacing before table
-
-          // Check if this looks like a calendar/event table
-          const isCalendarTable = headers.some(h =>
-            /^(event|date|status|time)$/i.test(h)
-          );
-
-          for (let idx = 0; idx < dataRows.length; idx++) {
-            const row = dataRows[idx];
-            const entryLines = [];
-
-            if (isCalendarTable) {
-              // Special formatting for calendar entries
-              const eventName = row[0] || '';
-              const dateIdx = headers.findIndex(h => /date|time/i.test(h));
-              const statusIdx = headers.findIndex(h => /status/i.test(h));
-              const date = dateIdx > 0 ? row[dateIdx] : '';
-              const status = statusIdx > 0 ? row[statusIdx] : '';
-
-              // Determine emoji based on status
-              const emoji = status.toLowerCase().includes('accept') ? '✅' :
-                           status.toLowerCase().includes('decline') ? '❌' :
-                           status.toLowerCase().includes('tentative') ? '❓' : '📅';
-
-              entryLines.push(`${emoji} <b>${eventName}</b>`);
-              if (date) entryLines.push(`     📆 ${date}`);
-              // Add other fields except event name, date, and status
-              for (let j = 1; j < row.length && j < headers.length; j++) {
-                if (j === dateIdx || j === statusIdx) continue;
-                const value = row[j] || '';
-                const header = headers[j] || '';
-                if (value) entryLines.push(`     ${header}: ${value}`);
-              }
-            } else {
-              // Default formatting
-              if (row[0]) {
-                entryLines.push(`▸ <b>${row[0]}</b>`);
-              }
-              for (let j = 1; j < row.length && j < headers.length; j++) {
-                const value = row[j] || '';
-                const header = headers[j] || '';
-                if (value) {
-                  entryLines.push(`   ${header}: ${value}`);
-                }
-              }
-            }
-
-            result.push(entryLines.join('\n'));
-            if (idx < dataRows.length - 1) result.push('');
-          }
-          result.push(''); // spacing after table
-        } else {
-          // No header - format as simple list items
-          for (const row of dataRows) {
-            const cells = row.filter(c => c);
-            if (cells.length > 0) {
-              const [first, ...rest] = cells;
-              if (rest.length > 0) {
-                result.push(`▸ <b>${first}</b>: ${rest.join(' · ')}`);
-              } else {
-                result.push(`▸ ${first}`);
-              }
-            }
-          }
-        }
+      if (headerCells && parsedRows.length > 0) {
+        result.push(buildMonoTable(headerCells, parsedRows));
+      } else if (parsedRows.length > 0) {
+        // No header — just format as aligned pre block
+        result.push(buildMonoTable(null, parsedRows));
       }
       continue;
     }
@@ -279,30 +209,68 @@ const convertTablesToReadable = (text) => {
   return result.join('\n');
 };
 
+// Build a monospace table wrapped in <pre> tags
+const buildMonoTable = (headers, rows) => {
+  const allRows = headers ? [headers, ...rows] : rows;
+  const colCount = Math.max(...allRows.map(r => r.length));
+
+  // Calculate max width for each column
+  const colWidths = [];
+  for (let c = 0; c < colCount; c++) {
+    colWidths[c] = Math.max(...allRows.map(r => (r[c] || '').length));
+  }
+
+  // Cap individual column widths to keep tables readable
+  for (let c = 0; c < colCount; c++) {
+    colWidths[c] = Math.min(colWidths[c], 30);
+  }
+
+  // Truncate cell to fit width
+  const fitCell = (text, width) => {
+    if (text.length <= width) return text.padEnd(width);
+    return text.slice(0, width - 1) + '…';
+  };
+
+  const formatRow = (cells) =>
+    cells.map((cell, c) => fitCell(cell || '', colWidths[c] || 0)).join(' │ ');
+
+  const separator = colWidths.map(w => '─'.repeat(w)).join('─┼─');
+
+  const outputLines = [];
+  if (headers) {
+    outputLines.push(formatRow(headers));
+    outputLines.push(separator);
+  }
+  for (const row of rows) {
+    outputLines.push(formatRow(row));
+  }
+
+  return `\n<pre>\n${outputLines.join('\n')}\n</pre>\n`;
+};
+
 // Remove any raw markdown table remnants that slipped through
 const cleanTableRemnants = (text) => {
-  return text
-    .split('\n')
-    .map(line => {
-      // If line contains pipes and looks like a table row, clean it up
-      if (line.includes('|') && !line.includes('<')) {
-        // Extract content between pipes
-        const cells = parseTableRow(line).filter(c => c.trim());
-        if (cells.length > 0) {
-          // Format as a clean line
-          return cells.join(' · ');
+  // Don't touch content inside <pre> blocks
+  const parts = text.split(/(<pre>[\s\S]*?<\/pre>)/g);
+  return parts.map(part => {
+    if (part.startsWith('<pre>')) return part;
+    return part
+      .split('\n')
+      .map(line => {
+        if (line.includes('|') && !line.includes('<')) {
+          const cells = parseTableRow(line).filter(c => c.trim());
+          if (cells.length > 0) return cells.join(' · ');
+          return '';
         }
-        return ''; // Remove empty table lines
-      }
-      return line;
-    })
-    .filter(line => {
-      const trimmed = line.trim();
-      // Remove pure separator lines
-      if (/^[\|\-\s:─]+$/.test(trimmed) && trimmed.length > 2) return false;
-      return true;
-    })
-    .join('\n');
+        return line;
+      })
+      .filter(line => {
+        const trimmed = line.trim();
+        if (/^[\|\-\s:─]+$/.test(trimmed) && trimmed.length > 2) return false;
+        return true;
+      })
+      .join('\n');
+  }).join('');
 };
 
 module.exports = { isUserAllowed, splitMessage, markdownToHtml, formatCalendarEntry };
