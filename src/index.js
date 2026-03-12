@@ -11,7 +11,7 @@ for (const key of REQUIRED_ENV) {
 
 const { Telegraf } = require('telegraf');
 const { runClaude, isComplexTask } = require('./claude-runner');
-const { logMessage, getRecentMessages } = require('./database');
+const { logMessage, getRecentMessages, clearHistory } = require('./database');
 const { isUserAllowed, splitMessage, markdownToHtml } = require('./utils');
 const express = require('express');
 const fs = require('fs');
@@ -138,7 +138,7 @@ bot.use(async (ctx, next) => {
 // Commands
 bot.start((ctx) => ctx.reply(
   `Welcome to Agent K!\n\n` +
-  `Commands:\n/new - New conversation\n/status - Bot status\n/test - Test CLI\n` +
+  `Commands:\n/new - New conversation\n/clear - Clear chat history\n/status - Bot status\n/test - Test CLI\n` +
   `/cancel - Cancel current request\n/cd <path> - Change workspace\n/sendfile <name> - Send file\n\nJust send a message!`
 ));
 
@@ -206,6 +206,12 @@ bot.command('sendfile', async (ctx) => {
   } catch (e) {
     ctx.reply(`❌ ${e.message}`);
   }
+});
+
+bot.command('clear', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const count = clearHistory(userId);
+  ctx.reply(`🗑 Chat cleared. Removed ${count} message${count !== 1 ? 's' : ''} from history.`);
 });
 
 // Handle text messages
@@ -289,7 +295,7 @@ bot.on('text', async (ctx) => {
         prompt = `${chatContext}\n${prompt}`;
       }
 
-      const result = await runClaude(prompt, { onProgress, signal: abort.signal });
+      const result = await runClaude(prompt, { onProgress, signal: abort.signal, userMessage: messageText });
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[${new Date().toLocaleTimeString()}] ✅ Reply to ${fromUsername} (${elapsed}s, ${result.response.length} chars)`);
@@ -375,7 +381,7 @@ const handleMedia = async (ctx, getFile, prompt) => {
         ? `[Chat context: Telegram GROUP chat ${chatId}. Send files/messages to GROUP $TELEGRAM_GROUP_CHAT_ID]`
         : `[Chat context: Telegram DM (private) chat ${chatId}. Send files/messages to DM $TELEGRAM_DM_CHAT_ID]`;
       const filePrompt = `${chatContext}\n${prompt}\n\nThe user sent a file. It has been downloaded to: ${dest}\nOriginal filename: ${origName || 'unknown'}\nPlease read/process this file to answer the user's request.`;
-      const result = await runClaude(filePrompt, { onProgress, signal: abort.signal });
+      const result = await runClaude(filePrompt, { onProgress, signal: abort.signal, userMessage: prompt });
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[${new Date().toLocaleTimeString()}] ✅ Media reply to ${fromUsername} (${elapsed}s)`);
       await logMessage(userId, filePrompt, result.response);

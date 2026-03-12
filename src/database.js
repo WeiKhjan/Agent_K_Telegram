@@ -92,4 +92,11 @@ const logMessage = (userId, userMsg, botResp) => {
 // Initialize DB eagerly at startup (avoid race conditions from concurrent handlers)
 getDb();
 
-module.exports = { getSession, saveSession, logMessage, getRecentMessages };
+const clearHistory = (userId) => {
+  const db = getDb();
+  const deleted = db.prepare('DELETE FROM audit_log WHERE telegram_user_id = ?').run(String(userId));
+  db.prepare('DELETE FROM sessions WHERE telegram_user_id = ?').run(String(userId));
+  return deleted.changes;
+};
+
+module.exports = { getSession, saveSession, logMessage, getRecentMessages, clearHistory };

@@ -147,16 +147,18 @@ function parseStreamEvent(line) {
 // Simple session model: every message is a fresh Claude process
 // Context comes from recent history injected into the prompt (by index.js)
 // No --resume, no session tracking, no MCP mismatch issues
-const runClaude = (message, { onProgress, signal } = {}) => {
+const runClaude = (message, { onProgress, signal, userMessage } = {}) => {
   return new Promise((resolve, reject) => {
     const cwd = process.env.WORKSPACE_DIR || process.cwd();
-    const complex = isComplexTask(message);
+    // Use raw user message for keyword detection (avoids false positives from system context)
+    const detectText = userMessage || message;
+    const complex = isComplexTask(detectText);
     const model = complex ? 'opus' : 'sonnet';
     const maxTurns = complex ? '70' : '30';
     const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', model, '--max-turns', maxTurns];
 
-    // Smart MCP: only load servers matching the message
-    const mcpServers = detectMcpServers(message);
+    // Smart MCP: only load servers matching the user's actual message
+    const mcpServers = detectMcpServers(detectText);
     const serverCount = Object.keys(mcpServers).length;
 
     if (serverCount > 0) {

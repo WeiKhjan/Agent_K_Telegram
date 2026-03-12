@@ -176,6 +176,8 @@ else:
 for ln in lines:
     if ln: story.append(Paragraph(ln, s_addr))
 
+if inv["client_sst_no"]:
+    story.append(Paragraph(f"SST No: {inv['client_sst_no']}", s_addr))
 tel_email = []
 if inv["client_tel"]:  tel_email.append(f"Tel: {inv['client_tel']}")
 if inv["client_email"]:tel_email.append(f"Email: {inv['client_email']}")
@@ -238,10 +240,13 @@ story += [itbl, Spacer(1,3*mm)]
 # ── Totals ────────────────────────────────────────────────────────────────────
 TW = [W-60*mm, 60*mm]
 totals = []
+totals.append([Paragraph("Subtotal", s_stot), Paragraph(fmt(inv["subtotal"]), s_stot)])
 if inv["sst_amount"] and inv["sst_amount"] > 0:
-    totals.append([Paragraph("Subtotal", s_stot), Paragraph(fmt(inv["subtotal"]), s_stot)])
     totals.append([Paragraph(f"SST ({int(inv['sst_rate']*100)}%)", s_stot),
                    Paragraph(fmt(inv["sst_amount"]), s_stot)])
+else:
+    sst_note = inv["sst_exemption_note"] if inv["sst_exemption_note"] else "Exempted"
+    totals.append([Paragraph(f"Service Tax @ 8%: {sst_note}", s_stot), Paragraph(fmt(0), s_stot)])
 totals.append([Paragraph("TOTAL (RM)", s_total_l), Paragraph(fmt(inv["total"]), s_total_r)])
 
 ttbl = Table(totals, colWidths=TW)

@@ -27,6 +27,8 @@ Required fields — **ask the user for anything missing, do not assume or fill i
 - Do not invent, estimate, or carry over details from a previous invoice
 - Confirm ambiguous amounts (e.g. "is RM3,000 per pax or total?") before proceeding
 - SST: apply 8% only if invoice date ≥ 1 March 2026; otherwise no SST
+- If client is SST-exempt (e.g. same SST group), set `sst_exemption_note` to the legal basis (e.g. "Exempted under Service Tax (Persons Exempted from Payment of Tax) Order 2018")
+- Always collect client SST registration number (`client_sst_no`) if they are SST-registered
 
 ### 2. Get Next Invoice Number
 ```python
@@ -52,11 +54,12 @@ c = conn.cursor()
 c.execute("""
 INSERT INTO invoices
   (invoice_no, invoice_date, due_date, client_company, client_attn,
-   client_email, client_tel, client_address, subtotal, sst_rate, sst_amount, total, pdf_path)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+   client_email, client_tel, client_address, client_sst_no, sst_exemption_note,
+   subtotal, sst_rate, sst_amount, total, pdf_path)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 """, (invoice_no, invoice_date, "Upon Receipt", client_company, client_attn,
-      client_email, client_tel, client_address, subtotal, sst_rate, sst_amount, total,
-      pdf_path))
+      client_email, client_tel, client_address, client_sst_no, sst_exemption_note,
+      subtotal, sst_rate, sst_amount, total, pdf_path))
 
 for i, item in enumerate(items):
     c.execute("""
@@ -135,6 +138,8 @@ conn.commit(); conn.close()
 ## SST Rules
 - Invoice date < 1 Mar 2026 → **no SST**
 - Invoice date ≥ 1 Mar 2026 → **8% SST** on subtotal
+- If exempt (e.g. same SST group): set `sst_rate=0.08`, `sst_amount=0`, `sst_exemption_note` = legal basis
+- Always show client's SST registration number in `client_sst_no` if available
 
 ## Database
 - Path: `~/invoices.db`
@@ -148,5 +153,7 @@ conn.commit(); conn.close()
 | subtotal | before SST |
 | sst_rate | 0.0 or 0.08 |
 | sst_amount | computed |
+| client_sst_no | client's SST registration number |
+| sst_exemption_note | legal basis if exempted (e.g. "Exempted under Service Tax (Persons Exempted from Payment of Tax) Order 2018") |
 | total | final payable |
 | pdf_path | local file path |

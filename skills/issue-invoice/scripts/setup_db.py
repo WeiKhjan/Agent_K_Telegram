@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     client_email    TEXT,
     client_tel      TEXT,
     client_address  TEXT,
+    client_sst_no   TEXT,
+    sst_exemption_note TEXT,
     subtotal        REAL    NOT NULL,
     sst_rate        REAL    DEFAULT 0.0,
     sst_amount      REAL    DEFAULT 0.0,
