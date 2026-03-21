@@ -63,10 +63,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 curl -fsSL https://github.com/cli/cli/releases/download/v2.67.0/gh_2.67.0_macOS_arm64.tar.gz | tar -xz -C /tmp/
 cp /tmp/gh_*/bin/gh ~/.local/bin/gh
 
-# ffmpeg (for voice-reply skill)
-# Download static binary from https://evermeet.cx/ffmpeg/ or use:
+# ffmpeg (for voice-reply skill — audio conversion)
 curl -fsSL https://evermeet.cx/ffmpeg/ffmpeg-7.1.1.zip -o /tmp/ffmpeg.zip
 unzip -o /tmp/ffmpeg.zip -d ~/.local/bin/
+
+# OpenAI Whisper (speech-to-text for voice messages)
+~/.local/bin/uv tool install openai-whisper
+
+# Qwen3-TTS via MLX Audio (text-to-speech — Apple Silicon only)
+~/.local/bin/uv tool install mlx-audio
+
+# Verify voice tools
+whisper --help
+mlx_audio.tts.generate --help
 
 # Playwright browsers
 npx playwright install chromium
