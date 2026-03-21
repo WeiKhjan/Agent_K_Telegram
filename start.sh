@@ -1,11 +1,7 @@
 #!/bin/zsh
 # Start Agent K via Claude Code Official Telegram Channel
-# Run in a separate terminal or tmux session
+# Auto-starts on boot via LaunchAgent
 
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
-echo "Starting Agent K (Claude Code Telegram Channel)..."
-echo "   Press Ctrl+C to stop"
-echo ""
-
-claude --channels plugin:telegram@claude-plugins-official
+claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions --verbose
