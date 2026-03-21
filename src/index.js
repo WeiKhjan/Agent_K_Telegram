@@ -31,6 +31,59 @@ const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
 // Track users currently being processed to prevent duplicate spawns
 const processingUsers = new Map(); // userId -> { startTime, messageId, abort }
 
+// Session store: chatId -> { sessionId, lastActivity, model }
+// Allows --resume to avoid reloading 100k+ tokens on each message
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const chatSessions = new Map();
+
+// Get a valid (non-expired) session ID for a chat, or null
+function getSessionId(chatId) {
+  const session = chatSessions.get(String(chatId));
+  if (!session) return null;
+  if (Date.now() - session.lastActivity > SESSION_TIMEOUT_MS) {
+    chatSessions.delete(String(chatId));
+    console.log(`  ⏰ Session expired for chat ${chatId}`);
+    return null;
+  }
+  return session.sessionId;
+}
+
+// Store/update session ID for a chat
+function setSessionId(chatId, sessionId) {
+  if (!sessionId) return;
+  chatSessions.set(String(chatId), { sessionId, lastActivity: Date.now() });
+}
+
+// Clear session for a chat (used by /new command)
+function clearSessionId(chatId) {
+  chatSessions.delete(String(chatId));
+}
+
+// Daily midnight cleanup — clear all sessions to free context
+function scheduleMidnightCleanup() {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0); // next midnight
+  const msUntilMidnight = midnight - now;
+
+  setTimeout(() => {
+    console.log('🧹 Midnight cleanup: clearing all chat sessions');
+    chatSessions.clear();
+    processingUsers.clear();
+    console.log(`  ✅ Sessions cleared at ${new Date().toISOString()}`);
+    // Schedule next midnight cleanup (every 24h)
+    setInterval(() => {
+      console.log('🧹 Midnight cleanup: clearing all chat sessions');
+      chatSessions.clear();
+      processingUsers.clear();
+      console.log(`  ✅ Sessions cleared at ${new Date().toISOString()}`);
+    }, 24 * 60 * 60 * 1000);
+  }, msUntilMidnight);
+
+  console.log(`⏰ Midnight cleanup scheduled in ${Math.round(msUntilMidnight / 60000)} minutes`);
+}
+scheduleMidnightCleanup();
+
 // Helper: Resolve file path relative to workspace
 const resolvePath = (filePath) => {
   if (!filePath) return null;
@@ -147,13 +200,18 @@ bot.command('chatid', (ctx) => {
 });
 
 bot.command('new', async (ctx) => {
-  ctx.reply('New conversation started. (Each message already uses fresh context from last 5 messages.)');
+  clearSessionId(ctx.chat.id);
+  ctx.reply('🆕 New conversation started. Session cleared.');
 });
 
 bot.command('status', async (ctx) => {
   const recent = getRecentMessages(ctx.from.id.toString(), 1);
   const lastMsg = recent.length > 0 ? new Date(recent[0].created_at).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' }) : 'None';
-  ctx.reply(`Status: ✅ Online\nLast message: ${lastMsg}\nWorkspace: ${process.env.WORKSPACE_DIR}`);
+  const session = chatSessions.get(String(ctx.chat.id));
+  const sessionInfo = session
+    ? `Active (${session.sessionId.slice(0, 8)}..., ${Math.round((Date.now() - session.lastActivity) / 1000)}s ago)`
+    : 'None';
+  ctx.reply(`Status: ✅ Online\nLast message: ${lastMsg}\nSession: ${sessionInfo}\nWorkspace: ${process.env.WORKSPACE_DIR}`);
 });
 
 bot.command('cd', (ctx) => {
@@ -183,6 +241,7 @@ bot.command('cancel', async (ctx) => {
     const info = processingUsers.get(userId);
     if (info.abort) info.abort.abort(); // kill the Claude process
     processingUsers.delete(userId);
+    clearSessionId(ctx.chat.id); // clear session since it may be in a bad state
     ctx.reply('🛑 Request cancelled. You can send a new message now.');
   } else {
     ctx.reply('No active request to cancel.');
@@ -211,7 +270,8 @@ bot.command('sendfile', async (ctx) => {
 bot.command('clear', async (ctx) => {
   const userId = ctx.from.id.toString();
   const count = clearHistory(userId);
-  ctx.reply(`🗑 Chat cleared. Removed ${count} message${count !== 1 ? 's' : ''} from history.`);
+  clearSessionId(ctx.chat.id);
+  ctx.reply(`🗑 Chat cleared. Removed ${count} message${count !== 1 ? 's' : ''} from history. Session reset.`);
 });
 
 // Handle text messages
@@ -281,24 +341,36 @@ bot.on('text', async (ctx) => {
         ? `[Chat context: Telegram GROUP chat ${chatId}. Send files/messages to GROUP $TELEGRAM_GROUP_CHAT_ID]\n[User: ${userName} (ID: ${userId})]`
         : `[Chat context: Telegram DM (private) chat ${chatId}. Send files/messages to DM $TELEGRAM_DM_CHAT_ID]\n[User: ${userName} (ID: ${userId})]`;
 
-      // Always inject recent history — every message is a fresh Claude process
-      const recent = getRecentMessages(userId, 10);
-      if (recent.length > 0) {
-        const history = recent.map(m => {
-          const time = new Date(m.created_at).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' });
-          const userMsg = (m.user_message || '').slice(0, 200);
-          const botMsg = (m.bot_response || '').slice(0, 300);
-          return `[${time}] User: ${userMsg}\n[${time}] Bot: ${botMsg}`;
-        }).join('\n\n');
-        prompt = `${chatContext}\n[Recent conversation history for context]\n${history}\n\n---\n[Current message]\n${prompt}`;
+      const resumeSessionId = getSessionId(chatId);
+
+      // Only inject conversation history for fresh sessions (no --resume)
+      // Resumed sessions already have full conversation context in the Claude session
+      if (!resumeSessionId) {
+        const recent = getRecentMessages(userId, 5);
+        if (recent.length > 0) {
+          const history = recent.map(m => {
+            const time = new Date(m.created_at).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' });
+            const userMsg = (m.user_message || '').slice(0, 2000);
+            const botMsg = (m.bot_response || '').slice(0, 2000);
+            return `[${time}] User: ${userMsg}\n[${time}] Bot: ${botMsg}`;
+          }).join('\n\n');
+          prompt = `${chatContext}\n[Recent conversation history for context]\n${history}\n\n---\n[Current message]\n${prompt}`;
+        } else {
+          prompt = `${chatContext}\n${prompt}`;
+        }
       } else {
         prompt = `${chatContext}\n${prompt}`;
       }
+      const result = await runClaude(prompt, { onProgress, signal: abort.signal, userMessage: messageText, sessionId: resumeSessionId });
 
-      const result = await runClaude(prompt, { onProgress, signal: abort.signal, userMessage: messageText });
+      // Store session ID for future --resume (saves reloading 100k+ tokens)
+      if (result.sessionId) {
+        setSessionId(chatId, result.sessionId);
+      }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`[${new Date().toLocaleTimeString()}] ✅ Reply to ${fromUsername} (${elapsed}s, ${result.response.length} chars)`);
+      const resumed = resumeSessionId ? ' [resumed]' : '';
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ Reply to ${fromUsername} (${elapsed}s, ${result.response.length} chars)${resumed}`);
 
       await logMessage(userId, prompt, result.response);
       await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
@@ -306,6 +378,8 @@ bot.on('text', async (ctx) => {
     } catch (e) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[${new Date().toLocaleTimeString()}] ❌ Error for ${fromUsername} (${elapsed}s): ${e.message}`);
+      // Clear session on error so next message starts fresh
+      clearSessionId(chatId);
       // Log failed/cancelled requests to audit_log too
       await logMessage(userId, prompt, `[ERROR after ${elapsed}s] ${e.message}`);
       await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
@@ -381,15 +455,25 @@ const handleMedia = async (ctx, getFile, prompt) => {
         ? `[Chat context: Telegram GROUP chat ${chatId}. Send files/messages to GROUP $TELEGRAM_GROUP_CHAT_ID]`
         : `[Chat context: Telegram DM (private) chat ${chatId}. Send files/messages to DM $TELEGRAM_DM_CHAT_ID]`;
       const filePrompt = `${chatContext}\n${prompt}\n\nThe user sent a file. It has been downloaded to: ${dest}\nOriginal filename: ${origName || 'unknown'}\nPlease read/process this file to answer the user's request.`;
-      const result = await runClaude(filePrompt, { onProgress, signal: abort.signal, userMessage: prompt });
+      const resumeSessionId = getSessionId(chatId);
+      const result = await runClaude(filePrompt, { onProgress, signal: abort.signal, userMessage: prompt, sessionId: resumeSessionId });
+
+      // Store session ID for future --resume
+      if (result.sessionId) {
+        setSessionId(chatId, result.sessionId);
+      }
+
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`[${new Date().toLocaleTimeString()}] ✅ Media reply to ${fromUsername} (${elapsed}s)`);
+      const resumed = resumeSessionId ? ' [resumed]' : '';
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ Media reply to ${fromUsername} (${elapsed}s)${resumed}`);
       await logMessage(userId, filePrompt, result.response);
       await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
       await sendResponse(ctx.telegram, chatId, result.response);
     } catch (e) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[${new Date().toLocaleTimeString()}] ❌ Media error for ${fromUsername} (${elapsed}s): ${e.message}`);
+      // Clear session on error so next message starts fresh
+      clearSessionId(chatId);
       await logMessage(userId, prompt, `[ERROR after ${elapsed}s] ${e.message}`);
       await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
       if (e.message !== 'Request cancelled') {

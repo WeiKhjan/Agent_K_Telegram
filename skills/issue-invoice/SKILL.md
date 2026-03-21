@@ -1,6 +1,6 @@
 ---
 name: issue-invoice
-description: Create, issue, or generate invoices for AiTraining2U PLT. Use when asked to invoice a client, bill someone, create a quotation, or generate payment documents.
+description: Create, issue, or generate invoices for AiTraining2U PLT. Use when asked to invoice a client, bill someone, or generate payment documents. For quotations use the issue-quotation skill instead.
 ---
 
 # Issue Invoice
@@ -76,6 +76,7 @@ conn.commit(); conn.close()
   ~/Agent_K_Telegram/skills/issue-invoice/scripts/build_pdf.py INV-ATU-YYYY-XXXX
 ```
 - PDF saves to `~/Documents/AiTraining2U/Invoices/{YYYY}/{invoice_no}_{Company-Slug}.pdf`
+- ⚠️ **ReportLab XML escaping**: `Paragraph()` parses content as XML — any `&`, `<`, `>` in raw strings will corrupt output. The `build_pdf.py` script handles this via the `esc()` helper; do not bypass it.
 - Company slug: strip legal suffixes (Sdn Bhd, PLT, Berhad, Ltd), spaces → hyphens (e.g. `Vynn-Capital`, `Kumpulan-Modal-Perdana`)
 - Year subfolder auto-created
 - **Script overwrites any existing file with the same invoice number** — only the final copy is kept

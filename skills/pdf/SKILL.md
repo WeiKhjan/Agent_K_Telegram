@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Read, create, edit, merge, split, and extract data from PDF files using Python libraries.
+description: Read, create, edit, merge, split, and extract data from PDF files using Python libraries. Use when user asks to read a PDF, create a PDF, merge PDFs, split a PDF, extract text or data from PDF, fill PDF forms, or convert documents to PDF.
 triggers:
   - pdf
   - merge pdf

@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Diagnose Agent K bot issues — check audit logs, process status, DB health, and recent errors.
+description: Diagnose Agent K bot issues — check audit logs, process status, DB health, and recent errors. Use when something isn't working, bot errors out, requests time out, user reports Agent K issues, or you need to check why a message failed.
 ---
 
 ## When to Use

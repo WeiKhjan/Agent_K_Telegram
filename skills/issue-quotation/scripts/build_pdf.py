@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AiTraining2U Invoice PDF Generator — reads from DB, generates PDF"""
+"""AiTraining2U Quotation PDF Generator — reads from DB, generates PDF"""
 
 import sqlite3, os, sys
 from reportlab.lib.pagesizes import A4
@@ -10,25 +10,25 @@ from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER
 
-DB_PATH  = os.path.expanduser("~/invoices.db")
-OUT_DIR  = os.path.expanduser("~/Documents/AiTraining2U/Invoices")
+DB_PATH  = os.path.expanduser("~/quotations.db")
+OUT_DIR  = os.path.expanduser("~/Documents/AiTraining2U/Quotations")
 
-# ── Accept invoice_no as arg, else use latest ─────────────────────────────────
-invoice_no = sys.argv[1] if len(sys.argv) > 1 else None
+# ── Accept quotation_no as arg, else use latest ───────────────────────────────
+quotation_no = sys.argv[1] if len(sys.argv) > 1 else None
 
 conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
 c = conn.cursor()
 
-if invoice_no:
-    c.execute("SELECT * FROM invoices WHERE invoice_no=?", (invoice_no,))
+if quotation_no:
+    c.execute("SELECT * FROM quotations WHERE quotation_no=?", (quotation_no,))
 else:
-    c.execute("SELECT * FROM invoices ORDER BY id DESC LIMIT 1")
-inv = c.fetchone()
-if not inv:
-    print("Invoice not found"); sys.exit(1)
+    c.execute("SELECT * FROM quotations ORDER BY id DESC LIMIT 1")
+quo = c.fetchone()
+if not quo:
+    print("Quotation not found"); sys.exit(1)
 
-c.execute("SELECT * FROM invoice_items WHERE invoice_no=? ORDER BY item_no", (inv["invoice_no"],))
+c.execute("SELECT * FROM quotation_items WHERE quotation_no=? ORDER BY item_no", (quo["quotation_no"],))
 items = c.fetchall()
 conn.close()
 
@@ -47,11 +47,6 @@ ISSUER = {
     "email":   _req("COMPANY_EMAIL"),
     "address": _req("COMPANY_ADDRESS"),
 }
-BANK = {
-    "name":      _req("BANK_NAME"),
-    "acct_name": _req("BANK_ACCT_NAME"),
-    "acct_no":   _req("BANK_ACCT_NO"),
-}
 
 DARK_BLUE  = HexColor("#1A3C5E")
 MED_BLUE   = HexColor("#2E86AB")
@@ -69,35 +64,41 @@ def fmt(v): return f"RM {v:,.2f}"
 def esc(s): return (s or "").replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 # Parse date to display format
-from datetime import datetime
-raw_date = inv["invoice_date"]
+from datetime import datetime, timedelta
+raw_date = quo["quotation_date"]
 try:
     display_date = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%-d %B %Y")
 except:
     display_date = raw_date
 
-# Parse address
-addr_lines = inv["client_address"].split(", ") if inv["client_address"] else []
+# Parse valid_until
+raw_valid = quo["valid_until"]
+if raw_valid:
+    try:
+        display_valid = datetime.strptime(raw_valid, "%Y-%m-%d").strftime("%-d %B %Y")
+    except:
+        display_valid = raw_valid
+else:
+    display_valid = "30 days from quotation date"
 
-year_dir = os.path.join(OUT_DIR, str(inv["invoice_date"][:4]))
+year_dir = os.path.join(OUT_DIR, str(quo["quotation_date"][:4]))
 os.makedirs(year_dir, exist_ok=True)
 
-# Build filename: INV-ATU-2026-0032_Vynn-Capital.pdf
+# Build filename: QUO-ATU-2026-0001_Vynn-Capital.pdf
 import re
 def company_slug(name):
-    # Strip legal suffixes, slugify
     name = re.sub(r'\b(Sdn\.?\s*Bhd\.?|PLT|Berhad|Bhd\.?|Pte\.?\s*Ltd\.?|Ltd\.?)\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[^\w\s-]', '', name).strip()
     name = re.sub(r'\s+', '-', name)
     return re.sub(r'-+', '-', name).strip('-')
 
-slug = company_slug(inv["client_company"])
-filename = f"{inv['invoice_no']}_{slug}.pdf"
+slug = company_slug(quo["client_company"])
+filename = f"{quo['quotation_no']}_{slug}.pdf"
 
-# Remove any old file for this invoice (different slug / stray in root)
+# Remove any old file for this quotation
 for old in [
-    os.path.expanduser(f"~/{inv['invoice_no']}.pdf"),
-    os.path.join(year_dir, f"{inv['invoice_no']}.pdf"),
+    os.path.expanduser(f"~/{quo['quotation_no']}.pdf"),
+    os.path.join(year_dir, f"{quo['quotation_no']}.pdf"),
 ]:
     if os.path.exists(old) and old != os.path.join(year_dir, filename):
         os.remove(old)
@@ -123,9 +124,6 @@ s_cell_c  = S("cell_c",  fontSize=9, textColor=TEXT,        fontName="Helvetica"
 s_total_l = S("tot_l",  fontSize=10.5, textColor=WHITE,    fontName="Helvetica-Bold", alignment=TA_RIGHT, leading=13)
 s_total_r = S("tot_r",  fontSize=10.5, textColor=WHITE,    fontName="Helvetica-Bold", alignment=TA_RIGHT, leading=13)
 s_stot    = S("stot",   fontSize=9,  textColor=TEXT,        fontName="Helvetica", alignment=TA_RIGHT, leading=12)
-s_pay_hdr = S("pay_hdr",fontSize=8,  textColor=DARK_BLUE,  fontName="Helvetica-Bold", leading=10)
-s_pay     = S("pay",    fontSize=8.5, textColor=TEXT,       fontName="Helvetica", leading=12)
-s_pay_b   = S("pay_b",  fontSize=8.5, textColor=TEXT,      fontName="Helvetica-Bold", leading=12)
 s_footer  = S("footer", fontSize=8,  textColor=SUBTEXT,    fontName="Helvetica-Oblique", alignment=TA_CENTER, leading=11)
 s_footer2 = S("ftr2",   fontSize=7.5,textColor=HexColor("#AAAAAA"), fontName="Helvetica", alignment=TA_CENTER, leading=10)
 
@@ -139,10 +137,10 @@ left_top = [
     Paragraph(f"Contact: {esc(ISSUER['contact'])}  \u2022  {esc(ISSUER['email'])}", s_co_sub),
 ]
 right_top = [
-    Paragraph("INVOICE", s_inv_ttl),
-    Paragraph(f"Invoice No:  {inv['invoice_no']}", s_inv_sub),
+    Paragraph("QUOTATION", s_inv_ttl),
+    Paragraph(f"Quotation No:  {quo['quotation_no']}", s_inv_sub),
     Paragraph(f"Date:  {display_date}", s_inv_sub),
-    Paragraph(f"Payment Terms:  {inv['due_date']}", s_inv_sub),
+    Paragraph(f"Valid Until:  {display_valid}", s_inv_sub),
 ]
 hdr = Table([[left_top, right_top]], colWidths=[W*0.55, W*0.45])
 hdr.setStyle(TableStyle([
@@ -154,21 +152,18 @@ story += [hdr, Spacer(1,5*mm),
           HRFlowable(width="100%",thickness=4,color=DARK_BLUE,spaceAfter=1),
           HRFlowable(width="100%",thickness=2,color=MED_BLUE,spaceAfter=4*mm)]
 
-# ── Bill To ───────────────────────────────────────────────────────────────────
-lbl = Table([[Paragraph("BILL TO", s_section)]], colWidths=[W])
+# ── Quote To ──────────────────────────────────────────────────────────────────
+lbl = Table([[Paragraph("QUOTE TO", s_section)]], colWidths=[W])
 lbl.setStyle(TableStyle([("LINEBELOW",(0,0),(-1,-1),0.75,MED_BLUE),
     ("BOTTOMPADDING",(0,0),(-1,-1),2),("TOPPADDING",(0,0),(-1,-1),0),
     ("LEFTPADDING",(0,0),(-1,-1),0)]))
 story += [lbl, Spacer(1,2*mm),
-          Paragraph(esc(inv["client_company"]), s_client)]
-if inv["client_attn"]:
-    story.append(Paragraph(f"Attn: {esc(inv['client_attn'])}", s_addr))
+          Paragraph(esc(quo["client_company"]), s_client)]
+if quo["client_attn"]:
+    story.append(Paragraph(f"Attn: {esc(quo['client_attn'])}", s_addr))
 
-# Smart address split: try ", " splits into 3 lines for readability
-addr = inv["client_address"] or ""
-# Split on commas to get nice lines
+addr = quo["client_address"] or ""
 parts = [p.strip() for p in addr.split(",")]
-# Group into max 3 display lines
 if len(parts) >= 4:
     lines = [parts[0], ", ".join(parts[1:3]), ", ".join(parts[3:])]
 elif len(parts) == 3:
@@ -178,11 +173,11 @@ else:
 for ln in lines:
     if ln: story.append(Paragraph(esc(ln), s_addr))
 
-if inv["client_sst_no"]:
-    story.append(Paragraph(f"SST No: {esc(inv['client_sst_no'])}", s_addr))
+if quo["client_sst_no"]:
+    story.append(Paragraph(f"SST No: {esc(quo['client_sst_no'])}", s_addr))
 tel_email = []
-if inv["client_tel"]:  tel_email.append(f"Tel: {esc(inv['client_tel'])}")
-if inv["client_email"]:tel_email.append(f"Email: {esc(inv['client_email'])}")
+if quo["client_tel"]:  tel_email.append(f"Tel: {esc(quo['client_tel'])}")
+if quo["client_email"]:tel_email.append(f"Email: {esc(quo['client_email'])}")
 if tel_email:
     story.append(Paragraph("   \u2022   ".join(tel_email), s_addr_sm))
 story.append(Spacer(1,6*mm))
@@ -201,9 +196,7 @@ tbl_data = [[
 ]]
 
 for i, it in enumerate(items):
-    # Try to split description for sub-line
     desc = it["description"]
-    # If description has comma, split first part as title, rest as sub
     if ", " in desc and len(desc) > 45:
         comma_idx = desc.find(", ", 30)
         main = desc[:comma_idx] if comma_idx > 0 else desc
@@ -242,14 +235,14 @@ story += [itbl, Spacer(1,3*mm)]
 # ── Totals ────────────────────────────────────────────────────────────────────
 TW = [W-60*mm, 60*mm]
 totals = []
-totals.append([Paragraph("Subtotal", s_stot), Paragraph(fmt(inv["subtotal"]), s_stot)])
-if inv["sst_amount"] and inv["sst_amount"] > 0:
-    totals.append([Paragraph(f"SST ({int(inv['sst_rate']*100)}%)", s_stot),
-                   Paragraph(fmt(inv["sst_amount"]), s_stot)])
+totals.append([Paragraph("Subtotal", s_stot), Paragraph(fmt(quo["subtotal"]), s_stot)])
+if quo["sst_amount"] and quo["sst_amount"] > 0:
+    totals.append([Paragraph(f"SST ({int(quo['sst_rate']*100)}%)", s_stot),
+                   Paragraph(fmt(quo["sst_amount"]), s_stot)])
 else:
-    sst_note = inv["sst_exemption_note"] if inv["sst_exemption_note"] else "Exempted"
+    sst_note = quo["sst_exemption_note"] if quo["sst_exemption_note"] else "Exempted"
     totals.append([Paragraph(f"Service Tax @ 8%: {sst_note}", s_stot), Paragraph(fmt(0), s_stot)])
-totals.append([Paragraph("TOTAL (RM)", s_total_l), Paragraph(fmt(inv["total"]), s_total_r)])
+totals.append([Paragraph("TOTAL (RM)", s_total_l), Paragraph(fmt(quo["total"]), s_total_r)])
 
 ttbl = Table(totals, colWidths=TW)
 ts = [("ALIGN",(0,0),(-1,-1),"RIGHT"),
@@ -260,33 +253,13 @@ if len(totals) > 1:
     ts += [("TOPPADDING",(0,0),(-1,-2),4),("BOTTOMPADDING",(0,0),(-1,-2),4),
            ("LINEABOVE",(0,-1),(-1,-1),1,HexColor("#AAAAAA"))]
 ttbl.setStyle(TableStyle(ts))
-story += [ttbl, Spacer(1,8*mm)]
-
-# ── Payment Details ───────────────────────────────────────────────────────────
-plbl = Table([[Paragraph("PAYMENT DETAILS", s_pay_hdr)]], colWidths=[W])
-plbl.setStyle(TableStyle([("LINEBELOW",(0,0),(-1,-1),0.75,MED_BLUE),
-    ("BOTTOMPADDING",(0,0),(-1,-1),2),("TOPPADDING",(0,0),(-1,-1),0),
-    ("LEFTPADDING",(0,0),(-1,-1),0)]))
-story += [plbl, Spacer(1,2*mm)]
-
-pay_rows = [["Bank",":",BANK["name"]],
-            ["Account Name",":",BANK["acct_name"]],
-            ["Account No.",":",BANK["acct_no"]]]
-ptbl = Table([[Paragraph(r[0],s_pay),Paragraph(r[1],s_pay),
-               Paragraph(r[2],s_pay_b if r[0]=="Account No." else s_pay)]
-              for r in pay_rows],
-             colWidths=[32*mm,5*mm,W-37*mm])
-ptbl.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),2),
-    ("BOTTOMPADDING",(0,0),(-1,-1),2),
-    ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),
-    ("VALIGN",(0,0),(-1,-1),"MIDDLE")]))
-story += [ptbl, Spacer(1,10*mm)]
+story += [ttbl, Spacer(1,10*mm)]
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 story += [HRFlowable(width="100%",thickness=0.5,color=HexColor("#CCCCCC"),spaceBefore=2),
           Spacer(1,3*mm),
-          Paragraph("Thank you for your business!", s_footer),
-          Paragraph("This is a computer-generated invoice. No signature required.", s_footer2)]
+          Paragraph("Thank you for considering our services!", s_footer),
+          Paragraph("This is a computer-generated quotation. Prices are valid until the date stated above.", s_footer2)]
 
 doc.build(story)
 print(f"PDF: {OUT}")

@@ -144,18 +144,23 @@ function parseStreamEvent(line) {
   return null;
 }
 
-// Simple session model: every message is a fresh Claude process
-// Context comes from recent history injected into the prompt (by index.js)
-// No --resume, no session tracking, no MCP mismatch issues
-const runClaude = (message, { onProgress, signal, userMessage } = {}) => {
+// Internal: spawn a single Claude CLI process and return its result
+// This is the low-level function; runClaude wraps it with session resume + retry logic
+function _spawnClaude(message, { onProgress, signal, userMessage, sessionId } = {}) {
   return new Promise((resolve, reject) => {
     const cwd = process.env.WORKSPACE_DIR || process.cwd();
     // Use raw user message for keyword detection (avoids false positives from system context)
     const detectText = userMessage || message;
     const complex = isComplexTask(detectText);
-    const model = complex ? 'opus' : 'sonnet';
+    const model = 'opus'; // Always use Opus 4.6 (1M context window)
     const maxTurns = complex ? '70' : '30';
     const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', model, '--max-turns', maxTurns];
+
+    // Resume existing session if available (avoids reloading full context)
+    if (sessionId) {
+      args.push('--resume', sessionId);
+      console.log(`  🔄 Resuming session: ${sessionId.slice(0, 8)}...`);
+    }
 
     // Smart MCP: only load servers matching the user's actual message
     const mcpServers = detectMcpServers(detectText);
@@ -168,10 +173,12 @@ const runClaude = (message, { onProgress, signal, userMessage } = {}) => {
       args.push('--strict-mcp-config'); // no MCP servers = fast mode
     }
 
-    // Inject persistent memory as system context
-    const systemContext = buildSystemContext();
-    if (systemContext) {
-      args.push('--append-system-prompt', systemContext);
+    // Inject persistent memory as system context (skip when resuming — session already has it)
+    if (!sessionId) {
+      const systemContext = buildSystemContext();
+      if (systemContext) {
+        args.push('--append-system-prompt', systemContext);
+      }
     }
 
     args.push(message);
@@ -191,7 +198,7 @@ const runClaude = (message, { onProgress, signal, userMessage } = {}) => {
     // Log full command for debugging
     const cmdPreview = `claude ${args.map(a => a.length > 100 ? a.slice(0, 100) + '...' : a).join(' ')}`;
     logToFile('CMD', cmdPreview);
-    logToFile('INFO', `Model: ${model}${complex ? ' (complex)' : ''} | MCP: ${serverCount > 0 ? Object.keys(mcpServers).join(', ') : 'none'}`);
+    logToFile('INFO', `Model: ${model}${complex ? ' (complex)' : ''} | MCP: ${serverCount > 0 ? Object.keys(mcpServers).join(', ') : 'none'}${sessionId ? ` | Resume: ${sessionId.slice(0, 8)}` : ''}`);
     logToFile('INFO', `Message: ${message.slice(0, 200)}`);
 
     const proc = spawn('claude', args, {
@@ -366,6 +373,30 @@ const runClaude = (message, { onProgress, signal, userMessage } = {}) => {
       if (!killed) reject(new Error(err.message));
     });
   });
+}
+
+// Session resume with automatic fallback: if --resume fails, retry without it
+const runClaude = async (message, opts = {}) => {
+  const { sessionId, ...restOpts } = opts;
+
+  // If we have a session to resume, try it first
+  if (sessionId) {
+    try {
+      const result = await _spawnClaude(message, { ...restOpts, sessionId });
+      return result;
+    } catch (err) {
+      // Don't retry on cancellation or timeout — those are intentional
+      if (err.message === 'Request cancelled' || err.message.includes('timed out') || err.message.includes('stalled')) {
+        throw err;
+      }
+      // Resume failed — fall back to fresh session
+      logToFile('RESUME_FAIL', `Session ${sessionId.slice(0, 8)} failed: ${err.message}. Retrying without --resume.`);
+      console.log(`  ⚠️  Resume failed, starting fresh session. Error: ${err.message.slice(0, 80)}`);
+    }
+  }
+
+  // Fresh session (no --resume)
+  return _spawnClaude(message, restOpts);
 };
 
 module.exports = { runClaude, isComplexTask, detectMcpServers };
