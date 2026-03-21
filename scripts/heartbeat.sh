@@ -3,7 +3,8 @@
 # Checks if the Telegram bot is responsive via Bot API.
 # If the bot is unresponsive OR claude isn't running, kills and lets launchd restart.
 
-LOG="/Users/aitraining2u/Agent_K_Telegram/logs/heartbeat.log"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOG="$SCRIPT_DIR/logs/heartbeat.log"
 TOKEN_FILE="$HOME/.claude/channels/telegram/.env"
 MAX_FAILURES=3
 STATE_FILE="/tmp/agent-k-heartbeat-failures"

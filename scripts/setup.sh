@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — First-run interactive setup for Agent K Telegram Bot
+# setup.sh — First-run interactive setup for Agent K (Claude Code + Telegram)
 # Idempotent: safe to run multiple times.
 
 set -e
@@ -9,31 +9,23 @@ cd "$REPO_DIR"
 
 echo ""
 echo "========================================="
-echo "  Agent K Telegram Bot — Setup"
+echo "  Agent K — Setup"
+echo "  (Claude Code + Official Telegram Channel)"
 echo "========================================="
 echo ""
 
-# ── 1. npm install ──
-if [ ! -d "node_modules" ]; then
-  echo "[1/9] Installing Node.js dependencies..."
-  npm install
-else
-  echo "[1/9] Dependencies already installed."
-fi
-
-# ── 2. Skills symlink ──
-echo ""
-echo "[2/9] Setting up skills..."
+# ── 1. Skills symlink ──
+echo "[1/8] Setting up skills..."
 bash scripts/setup-skills.sh
 
-# ── 3. Soul setup (CLAUDE.md) ──
+# ── 2. Soul setup (CLAUDE.md) ──
 echo ""
-echo "[3/9] Setting up agent soul..."
+echo "[2/8] Setting up agent soul..."
 bash scripts/setup-soul.sh
 
-# ── 4. Environment variables ──
+# ── 3. Environment variables ──
 echo ""
-echo "[4/9] Configuring environment..."
+echo "[3/8] Configuring environment..."
 
 if [ "$1" = "--reconfigure" ]; then
   echo "  Reconfiguring .env..."
@@ -50,7 +42,7 @@ if [ "$CONFIGURE_ENV" = true ]; then
   cp -n .env.example .env 2>/dev/null || true
 
   echo ""
-  echo "  --- MANDATORY (bot won't start without these) ---"
+  echo "  --- MANDATORY ---"
   echo ""
 
   read -rp "  Telegram bot token (from @BotFather): " BOT_TOKEN
@@ -59,6 +51,11 @@ if [ "$CONFIGURE_ENV" = true ]; then
     exit 1
   fi
   sed -i.bak "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=$BOT_TOKEN|" .env
+
+  # Also save token to the official channel config
+  mkdir -p "$HOME/.claude/channels/telegram"
+  echo "TELEGRAM_BOT_TOKEN=$BOT_TOKEN" > "$HOME/.claude/channels/telegram/.env"
+  echo "  Saved bot token to ~/.claude/channels/telegram/.env"
 
   echo ""
   echo "  ┌─────────────────────────────────────────────────────────┐"
@@ -74,15 +71,38 @@ if [ "$CONFIGURE_ENV" = true ]; then
   echo ""
   read -rp "  Press Enter once you've disabled group privacy... "
 
-  read -rp "  Allowed chat IDs (comma-separated, use /chatid to find): " CHAT_IDS
-  if [ -z "$CHAT_IDS" ]; then
-    echo "  ERROR: At least one chat ID is required for security."
+  # Access control
+  echo ""
+  echo "  --- ACCESS CONTROL ---"
+  echo ""
+  echo "  Your Telegram user ID controls who can message the bot."
+  echo "  Find it by messaging @userinfobot on Telegram."
+  echo ""
+  read -rp "  Your Telegram user ID (numeric): " OWNER_TG_ID
+  if [ -z "$OWNER_TG_ID" ]; then
+    echo "  ERROR: At least one user ID is required for security."
     exit 1
   fi
-  sed -i.bak "s|^ALLOWED_CHAT_IDS=.*|ALLOWED_CHAT_IDS=$CHAT_IDS|" .env
+
+  # Create access.json for official channel
+  cat > "$HOME/.claude/channels/telegram/access.json" << ACCESS_EOF
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["$OWNER_TG_ID"],
+  "groups": {},
+  "ackReaction": "👀",
+  "textChunkLimit": 4096,
+  "chunkMode": "newline"
+}
+ACCESS_EOF
+  echo "  Created access control at ~/.claude/channels/telegram/access.json"
+
+  # Also save to .env for skills that reference it
+  sed -i.bak "s|^ALLOWED_CHAT_IDS=.*|ALLOWED_CHAT_IDS=$OWNER_TG_ID|" .env
+  sed -i.bak "s|^ALLOWED_TELEGRAM_IDS=.*|ALLOWED_TELEGRAM_IDS=$OWNER_TG_ID|" .env
 
   echo ""
-  echo "  --- RECOMMENDED (press Enter to use defaults) ---"
+  echo "  --- RECOMMENDED (press Enter to skip) ---"
   echo ""
 
   read -rp "  Working directory [default: ~/]: " WORKSPACE
@@ -115,27 +135,28 @@ if [ "$CONFIGURE_ENV" = true ]; then
   [ -n "$FROM_EMAIL" ] && sed -i.bak "s|^FROM_EMAIL=.*|FROM_EMAIL=$FROM_EMAIL|" .env
 
   echo ""
-  echo "  Telegram chat IDs (optional — press Enter to skip):"
-  echo "    To find group chat ID: add the bot to your group, then send /chatid"
-  echo "    To find your DM chat ID: message @userinfobot on Telegram"
-  read -rp "  Telegram group chat ID for file delivery (optional): " TG_GROUP
+  echo "  Telegram chat IDs (optional — for file delivery routing):"
+  echo "    Group chat ID: add bot to group, message @userinfobot"
+  echo "    DM chat ID: same as your user ID"
+  read -rp "  Telegram group chat ID (optional): " TG_GROUP
   [ -n "$TG_GROUP" ] && sed -i.bak "s|^TELEGRAM_GROUP_CHAT_ID=.*|TELEGRAM_GROUP_CHAT_ID=$TG_GROUP|" .env
 
-  read -rp "  Telegram DM chat ID for private delivery (optional): " TG_DM
+  read -rp "  Telegram DM chat ID (optional): " TG_DM
   [ -n "$TG_DM" ] && sed -i.bak "s|^TELEGRAM_DM_CHAT_ID=.*|TELEGRAM_DM_CHAT_ID=$TG_DM|" .env
 
   echo ""
   echo "  Optional vars you can edit in .env later:"
-  echo "    ALLOWED_TELEGRAM_IDS, COMPANY_SST_NO, BANK_NAME, BANK_ACCT_NAME,"
-  echo "    BANK_ACCT_NO, CC_EMAILS, PLAYWRIGHT_CHROME_PATH"
+  echo "    COMPANY_SST_NO, BANK_NAME, BANK_ACCT_NAME,"
+  echo "    BANK_ACCT_NO, CC_EMAILS, PLAYWRIGHT_CHROME_PATH,"
+  echo "    TNB_EMAIL, TNB_PASSWORD, TNB_ACCOUNT_NUMBERS"
 
   # Clean up sed backup files
   rm -f .env.bak
 fi
 
-# ── 5. Google Cloud Console setup ──
+# ── 4. Google Cloud Console setup ──
 echo ""
-echo "[5/8] Google Cloud Console setup"
+echo "[4/8] Google Cloud Console setup"
 echo ""
 
 SETUP_GOOGLE=false
@@ -187,7 +208,7 @@ if [ "$SETUP_GOOGLE" = true ]; then
   echo "  └──────────────────────────────────────────────────────────────┘"
   echo ""
 
-  # ── 5a. Gmail auth ──
+  # ── 4a. Gmail auth ──
   echo "  --- Gmail API Setup ---"
   if [ "$1" = "--gmail" ] || [ ! -f "$HOME/.gmail-mcp/credentials.json" ]; then
     read -rp "  Path to OAuth client JSON for Gmail (or Enter to skip): " GMAIL_OAUTH_PATH
@@ -203,7 +224,7 @@ if [ "$SETUP_GOOGLE" = true ]; then
     echo "  Gmail credentials found. Skipping."
   fi
 
-  # ── 5b. Google Drive/Sheets auth ──
+  # ── 4b. Google Drive/Sheets auth ──
   echo ""
   echo "  --- Google Drive & Sheets API Setup ---"
   if [ "$1" = "--google" ] || [ ! -f "$HOME/.gdrive-mcp/sheets-token.json" ]; then
@@ -225,11 +246,10 @@ else
   echo "  Run with --gmail or --google to reconfigure."
 fi
 
-# ── 6. Configure MCP servers for Google services ──
+# ── 5. Configure MCP servers info ──
 echo ""
-echo "[6/8] Configuring MCP servers..."
+echo "[5/8] MCP server status..."
 
-CLAUDE_JSON="$HOME/.claude.json"
 if [ -f "$HOME/.gdrive-mcp/sheets-token.json" ]; then
   echo "  Google Sheets MCP: credentials ready at ~/.gdrive-mcp/"
 else
@@ -242,18 +262,35 @@ else
   echo "  Gmail MCP: no credentials (skipped)"
 fi
 
-# ── 7. Check Claude CLI ──
+# ── 6. Check Claude CLI ──
 echo ""
-echo "[7/9] Checking prerequisites..."
+echo "[6/8] Checking prerequisites..."
 
 if command -v claude &>/dev/null; then
   CLAUDE_VER=$(claude --version 2>/dev/null || echo "unknown")
   echo "  Claude CLI: $CLAUDE_VER"
 else
-  echo "  WARNING: Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+  echo "  WARNING: Claude CLI not found."
+  echo "  Install with: curl -fsSL https://claude.ai/install.sh | sh"
 fi
 
-# ── 8. Playwright ──
+if command -v node &>/dev/null; then
+  echo "  Node.js: $(node --version 2>/dev/null)"
+else
+  echo "  WARNING: Node.js not found. Required for MCP servers."
+fi
+
+if [ -f "$HOME/.local/share/office-venv/bin/python" ]; then
+  echo "  Office venv: $($HOME/.local/share/office-venv/bin/python --version 2>/dev/null)"
+else
+  echo "  WARNING: Office venv not found at ~/.local/share/office-venv/"
+  echo "  See SETUP-GUIDE.md Step 1c for installation."
+fi
+
+# ── 7. Playwright ──
+echo ""
+echo "[7/8] Playwright browser..."
+
 if npx playwright --version &>/dev/null 2>&1; then
   echo "  Playwright: installed"
 else
@@ -261,9 +298,9 @@ else
   npx playwright install chromium
 fi
 
-# ── 9. Mac Mini Headless Setup (optional) ──
+# ── 8. Mac Mini Headless Setup (optional) ──
 echo ""
-echo "[9/9] Mac Mini headless setup (optional)"
+echo "[8/8] Mac Mini headless setup (optional)"
 echo ""
 echo "  If you're running Agent K on a Mac Mini as an always-on server,"
 echo "  configure it so it won't sleep and the display turns off."
@@ -307,8 +344,14 @@ echo ""
 echo "========================================="
 echo "  Setup complete!"
 echo ""
-echo "  Start the bot:  npm start"
-echo "  Dev mode:        npm run dev"
+echo "  Start Agent K:"
+echo "    claude --channels plugin:telegram@claude-plugins-official --verbose"
+echo ""
+echo "  Start with full permissions (production):"
+echo "    claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions --verbose"
+echo ""
+echo "  Auto-start on boot:"
+echo "    See SETUP-GUIDE.md Step 8 for LaunchAgent setup."
 echo ""
 echo "  Reconfigure later:"
 echo "    ./scripts/setup.sh --reconfigure  (env vars)"

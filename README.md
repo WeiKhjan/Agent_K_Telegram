@@ -1,78 +1,97 @@
-# Agent K — DEPRECATED
+# Agent K — Claude Code + Telegram
 
-> **This project has been replaced by the official [Claude Code Telegram Channel](https://code.claude.com/docs/en/channels).**
-> As of March 2026, Agent K's custom Telegram bot infrastructure is no longer needed.
-> Claude Code v2.1.80+ natively supports Telegram as a channel plugin.
+AI assistant powered by Claude Code with Telegram as the primary interface. Runs 24/7 on a Mac with auto-start, health monitoring, and daily restart.
 
-## Migration
+## Quick Start
 
-Agent K has been replaced by `plugin:telegram@claude-plugins-official`, the official Claude Code Telegram channel. This provides:
+```bash
+# 1. Clone and run setup
+git clone https://github.com/YOUR_ORG/Agent_K_Telegram.git
+cd Agent_K_Telegram
+bash scripts/setup.sh
 
-- Native two-way Telegram chat (DMs and group chats)
-- Per-user allowlisting with pairing flow
+# 2. Test it
+claude --channels plugin:telegram@claude-plugins-official --verbose
+
+# 3. Message your bot on Telegram!
+```
+
+For detailed first-time setup (including tool installation, BotFather, Mac permissions), see **[SETUP-GUIDE.md](SETUP-GUIDE.md)**.
+
+## How It Works
+
+Agent K uses the official Claude Code Telegram Channel plugin (`plugin:telegram@claude-plugins-official`). Claude Code handles everything natively:
+
+- Two-way Telegram chat (DMs and group chats)
+- Per-user allowlisting with access control
 - @mention detection in groups
 - File attachments (photos, documents up to 50MB)
 - Typing indicators and emoji reactions
-- Message editing (progress updates)
-- No custom bot code to maintain
+- 24 custom skills for business operations
 
-### What was preserved
+### Architecture
 
-- **Skills** — All 23 skills remain in `~/.claude/skills/` (symlinked from this repo's `skills/` directory)
-- **Memory system** — `~/.claude/CLAUDE.md` and `~/.claude/projects/.../memory/` unchanged
-- **Google OAuth tokens** — Gmail (`~/.gmail-mcp/`) and Drive (`~/.gdrive-mcp/`) tokens still valid
-- **MCP servers** — Configured in `~/.claude/settings.local.json`, independent of Agent K
+```
+Telegram ←→ Claude Code CLI (with Telegram plugin)
+              ├── Skills (~/.claude/skills/ → skills/)
+              ├── MCP Servers (Playwright, Gmail, Sheets, etc.)
+              ├── Memory System (~/.claude/projects/.../memory/)
+              └── Soul / Identity (~/.claude/CLAUDE.md)
+```
 
-### How to run (new method)
+## Configuration
+
+| File | Purpose |
+|------|---------|
+| `~/.claude/channels/telegram/.env` | Bot token |
+| `~/.claude/channels/telegram/access.json` | Access control (allowlist, groups) |
+| `~/.claude/CLAUDE.md` | Agent identity, security rules, memory system |
+| `~/Agent_K_Telegram/.env` | Company/personal config (invoicing, email, etc.) |
+| `~/.claude/settings.json` | Enabled plugins |
+| `~/.claude/settings.local.json` | Permissions whitelist |
+| `~/.claude.json` | MCP server configs (per project) |
+
+## Running
+
+### Foreground (testing)
 
 ```bash
-claude --channels plugin:telegram@claude-plugins-official
+claude --channels plugin:telegram@claude-plugins-official --verbose
 ```
 
-Configuration:
-- Bot token: `~/.claude/channels/telegram/.env`
-- Access control: `~/.claude/channels/telegram/access.json`
+### Production (full permissions)
 
-See [Claude Code Channels documentation](https://code.claude.com/docs/en/channels) for full setup guide.
-
-## Legacy Architecture (archived)
-
-The original Agent K was a Node.js Telegram bot (Telegraf) that spawned Claude Code CLI as a subprocess. It handled session continuity, MCP loading, file delivery, and audit logging. This infrastructure is no longer needed since Claude Code handles it natively.
-
-### Original project structure
-
-```
-Agent_K_Telegram/
-├── src/               # Bot runtime (deprecated)
-│   ├── index.js       # Telegraf handlers
-│   ├── claude-runner.js # Claude CLI wrapper
-│   ├── database.js    # SQLite sessions & audit
-│   └── utils.js       # Auth, formatting
-├── skills/            # Claude Code skills (STILL ACTIVE)
-├── scripts/           # Setup scripts
-├── config/            # Config templates
-└── .env.example       # Environment template
+```bash
+claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions --verbose
 ```
 
-## Skills (still active)
+### Auto-start on boot (LaunchAgent)
 
-Skills are symlinked to `~/.claude/skills/` and work with the official channel:
+See [SETUP-GUIDE.md — Step 8](SETUP-GUIDE.md#step-8-set-up-auto-start-launchagent) for LaunchAgent plist setup.
+
+Three LaunchAgents work together:
+- **Main** — Starts Agent K on login with auto-restart loop
+- **Heartbeat** — Pings Telegram API every 2 min, kills unresponsive process
+- **Daily restart** — Kills Claude at midnight to prevent context bloat
+
+## Skills (24 active)
+
+Skills are in `skills/` and symlinked to `~/.claude/skills/`:
 
 | Skill | Description |
 |-------|-------------|
 | `/check-email` | Check Gmail inbox |
-| `/claude-api` | Claude API/SDK help |
 | `/compact` | Pre-compact memory flush |
 | `/debug` | Diagnose bot issues |
-| `/download-tnb-bill` | Download TNB bills |
-| `/excel` | Excel operations |
+| `/download-tnb-bill` | Download TNB electricity bills |
+| `/excel` | Excel file operations |
 | `/flight-booking` | Search flights on Agoda |
 | `/flight-checkin` | Online flight check-in |
 | `/git-push` | Git commit and push |
 | `/google-sheets` | Google Sheets operations |
 | `/hotel-booking` | Hotel booking on Agoda |
 | `/hr-payroll` | Employment contracts |
-| `/hrdc-claims` | HRDC T3 attendance |
+| `/hrdc-claims` | HRDC T3 attendance forms |
 | `/issue-invoice` | Invoice generation |
 | `/issue-quotation` | Quotation generation |
 | `/mac-setup` | Mac Mini headless setup |
@@ -80,10 +99,58 @@ Skills are symlinked to `~/.claude/skills/` and work with the official channel:
 | `/powerpoint` | PowerPoint operations |
 | `/repo-check` | Pre-commit audit |
 | `/send-email` | Send emails via Gmail |
-| `/send-file` | File delivery |
+| `/send-file` | File delivery (Telegram/email) |
 | `/send-telegram` | Send Telegram messages |
 | `/skill-creator` | Create/improve skills |
+| `/voice-reply` | Voice message transcription + reply |
 | `/word` | Word documents |
+
+## Project Structure
+
+```
+Agent_K_Telegram/
+├── skills/                      # 24 Claude Code skills (source of truth)
+│   ├── check-email/
+│   ├── issue-invoice/
+│   ├── ...
+│   └── word/
+├── scripts/
+│   ├── setup.sh                 # Interactive first-run setup
+│   ├── setup-soul.sh            # Agent identity generator
+│   ├── setup-skills.sh          # Skills symlink helper
+│   ├── heartbeat.sh             # Health monitor for LaunchAgent
+│   ├── gmail-auth.py            # Gmail OAuth flow
+│   └── gdrive-auth.py          # Google Drive/Sheets OAuth flow
+├── config/
+│   └── CLAUDE.md.template       # Soul template
+├── logs/                        # Runtime logs
+├── start-agent-k.command        # Auto-start launcher (with restart loop)
+├── start.sh                     # Simple launcher
+├── .env.example                 # Environment template
+├── SETUP-GUIDE.md              # Complete first-timer setup guide
+├── CLAUDE.md                    # Project-level instructions
+└── README.md                    # This file
+```
+
+### Legacy code (archived)
+
+The `src/` directory contains the original Node.js Telegraf bot code. It is no longer used — kept for reference only. The custom bot has been fully replaced by the official Claude Code Telegram Channel plugin.
+
+## Setup Scripts
+
+```bash
+# Full setup (first-time)
+bash scripts/setup.sh
+
+# Reconfigure environment variables
+bash scripts/setup.sh --reconfigure
+
+# Reconfigure Gmail OAuth
+bash scripts/setup.sh --gmail
+
+# Reconfigure Google Drive/Sheets OAuth
+bash scripts/setup.sh --google
+```
 
 ## License
 

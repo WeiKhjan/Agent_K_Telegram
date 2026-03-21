@@ -1,21 +1,27 @@
-# Agent K — DEPRECATED
+# Agent K — Claude Code + Telegram
 
-> This project has been replaced by the official Claude Code Telegram Channel plugin.
-> The custom Node.js bot (src/) is no longer used.
-> Skills in `skills/` remain active and are symlinked to `~/.claude/skills/`.
+This project provides skills, configuration, and auto-start infrastructure for running
+Claude Code as a 24/7 Telegram bot via the official Telegram Channel plugin.
 
-## Migration Status
+## How to run
 
-- **Old method**: Node.js bot (Telegraf) → Claude CLI subprocess
-- **New method**: `claude --channels plugin:telegram@claude-plugins-official`
-- **Config**: `~/.claude/channels/telegram/` (token + access.json)
+```bash
+claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions --verbose
+```
 
-## Skills (still active)
+Config: `~/.claude/channels/telegram/` (token + access.json)
+
+## Skills (active)
 
 Skills in `skills/` are symlinked to `~/.claude/skills/` and work with the official channel.
 See README.md for the full skill list.
 
+## Setup
+
+Run `bash scripts/setup.sh` for interactive first-time setup.
+See `SETUP-GUIDE.md` for the complete walkthrough.
+
 ## Legacy src/ code
 
-The `src/` directory contains the original bot code. It is no longer maintained.
-Kept for reference only.
+The `src/` directory contains the original Telegraf bot code. It is no longer maintained.
+Kept for reference only — the official Claude Code Telegram plugin replaced it in March 2026.
