@@ -98,7 +98,7 @@ for (const key of REQUIRED_ENV) {
 const { Telegraf } = require('telegraf');
 const { runClaude, isComplexTask, shouldUseOllama, detectMcpServers } = require('./claude-runner');
 const { runOllama, isOllamaAvailable, getAvailableModels } = require('./ollama-runner');
-const { logMessage, getRecentMessages, getPreferredModel, setPreferredModel } = require('./database');
+const { logMessage, getRecentMessages, getPreferredModel, setPreferredModel, logEvent, getSessionEvents, getUserMaxTurns, setUserMaxTurns } = require('./database');
 const { isUserAllowed, splitMessage, markdownToHtml } = require('./utils');
 const express = require('express');
 const fs = require('fs');
@@ -237,7 +237,8 @@ bot.use(async (ctx, next) => {
 bot.start((ctx) => ctx.reply(
   `Welcome to Agent K!\n\n` +
   `Commands:\n/new - New conversation\n/status - Bot status\n/model - Select AI model\n/test - Test CLI\n` +
-  `/cancel - Cancel current request\n/cd <path> - Change workspace\n/sendfile <name> - Send file\n\nJust send a message!`
+  `/cancel - Cancel current request\n/cd <path> - Change workspace\n/sendfile <name> - Send file\n` +
+  `/debug_session - Show last session routing events\n/maxturn <n> - Set max turns (1-100)\n\nJust send a message!`
 ));
 
 bot.command('chatid', (ctx) => {
@@ -353,6 +354,39 @@ bot.command('cancel', async (ctx) => {
   } else {
     ctx.reply('No active request to cancel.');
   }
+});
+
+// Escape user-controlled strings before embedding in Telegram HTML messages
+const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// /debug-session — show last session's routing events (Phase 3: structured audit trail)
+bot.command('debug_session', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const events = getSessionEvents(userId, 20);
+  if (events.length === 0) {
+    return ctx.reply('No session events recorded yet. Send a message first.');
+  }
+  const lines = events.map(e => {
+    const t = new Date(e.created_at).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+    return `[${t}] <b>${escapeHtml(e.event_type)}</b>: ${escapeHtml(e.detail)}`;
+  });
+  await ctx.reply(`<b>Last ${events.length} session events:</b>\n\n${lines.join('\n')}`, { parse_mode: 'HTML' });
+});
+
+// /maxturn <n> — set per-user max turns budget (Phase 4: budget control)
+bot.command('maxturn', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const arg = ctx.message.text.split(' ')[1];
+  if (!arg) {
+    const current = getUserMaxTurns(userId);
+    return ctx.reply(`Current max turns: ${current}\nUsage: /maxturn <1-100>`);
+  }
+  const n = parseInt(arg, 10);
+  if (isNaN(n) || n < 1 || n > 100) {
+    return ctx.reply('Invalid value. Use a number between 1 and 100.');
+  }
+  setUserMaxTurns(userId, n);
+  ctx.reply(`✅ Max turns set to ${n}. Applies to your next Claude request.`);
 });
 
 bot.command('sendfile', async (ctx) => {
@@ -522,7 +556,10 @@ bot.on('text', async (ctx) => {
       }
     } else {
       // Use Claude (with full context)
-      result = await runClaude(finalPrompt, { onProgress, signal: abort.signal, modelOverride: preferredModel });
+      const maxTurns = getUserMaxTurns(userId);
+      const mcpLoaded = Object.keys(detectMcpServers(finalPrompt));
+      logEvent(userId, 'routing', `model=${preferredModel} maxTurns=${maxTurns} mcp=${mcpLoaded.join(',') || 'none'}`);
+      result = await runClaude(finalPrompt, { onProgress, signal: abort.signal, modelOverride: preferredModel, maxTurns });
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

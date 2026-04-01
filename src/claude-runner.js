@@ -48,12 +48,20 @@ const MCP_SERVERS = {
   }
 };
 
-// Detect which MCP servers are needed based on message content
+// Score an MCP server against message tokens (Phase 2: permission context)
+// Returns count of keyword matches — load server if score > 0
+function scoreMcpServer(server, tokens) {
+  return server.keywords.reduce((score, kw) => {
+    return score + (tokens.some(t => kw.includes(t) || t === kw) ? 1 : 0);
+  }, 0);
+}
+
+// Detect which MCP servers are needed based on scored token overlap
 function detectMcpServers(message) {
-  const lower = message.toLowerCase();
+  const tokens = message.toLowerCase().match(/\w+/g) || [];
   const needed = {};
   for (const [name, server] of Object.entries(MCP_SERVERS)) {
-    if (server.keywords.some(kw => lower.includes(kw))) {
+    if (scoreMcpServer(server, tokens) > 0) {
       needed[name] = server.config;
     }
   }
@@ -168,6 +176,42 @@ function parseStreamEvent(line) {
   return null;
 }
 
+// Phase 1: Typed event dispatcher — replaces ad-hoc if/else in stdout handler
+// Each handler receives (event, state) and mutates state in place
+const STREAM_EVENT_HANDLERS = {
+  result: (ev, state) => {
+    state.resultEvent = ev;
+    if (ev.is_error) {
+      const errText = JSON.stringify(ev).toLowerCase();
+      if (/credit|rate.limit|402|429|billing/.test(errText)) {
+        state.rateLimitRejected = true;
+        logToFile('WARN', 'Rate limit detected in result event');
+      }
+    }
+  },
+  rate_limit_event: (ev, state) => {
+    const info = ev.rate_limit_info || {};
+    if (info.status === 'rejected') {
+      state.rateLimitRejected = true;
+      state.rateLimitResetsAt = info.resetsAt || null;
+      logToFile('WARN', `Rate limit rejected: type=${info.rateLimitType} resetsAt=${info.resetsAt}`);
+    }
+  },
+};
+
+function dispatchStreamEvent(ev, state) {
+  const handler = STREAM_EVENT_HANDLERS[ev.type];
+  if (handler) handler(ev, state);
+  // Accumulate token usage from any event that carries it
+  const usage = ev.message?.usage || ev.usage;
+  if (usage) {
+    state.totalUsage.input_tokens += usage.input_tokens || 0;
+    state.totalUsage.output_tokens += usage.output_tokens || 0;
+    state.totalUsage.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
+    state.totalUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
+  }
+}
+
 // Simple session model: every message is a fresh Claude process
 // Context comes from recent history injected into the prompt (by index.js)
 // No --resume, no session tracking, no MCP mismatch issues
@@ -177,14 +221,15 @@ const MODEL_IDS = {
   opus:   'claude-opus-4-6',
 };
 
-const runClaude = (message, { onProgress, signal, modelOverride } = {}) => {
+const runClaude = (message, { onProgress, signal, modelOverride, maxTurns } = {}) => {
   return new Promise((resolve, reject) => {
     const cwd = process.env.WORKSPACE_DIR || process.cwd();
     const complex = isComplexTask(message);
     // Use user-selected model if set; fall back to auto-detection
     const model = (modelOverride && modelOverride !== 'auto') ? modelOverride : (complex ? 'opus' : 'sonnet');
     const modelId = MODEL_IDS[model] || model;
-    const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', modelId, '--max-turns', '30'];
+    const turns = (maxTurns && Number.isInteger(maxTurns) && maxTurns > 0) ? maxTurns : 30;
+    const args = ['-p', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions', '--model', modelId, '--max-turns', String(turns)];
 
     // Smart MCP: only load servers matching the message
     const mcpServers = detectMcpServers(message);
@@ -239,13 +284,14 @@ const runClaude = (message, { onProgress, signal, modelOverride } = {}) => {
     let stdout = '';
     let stderr = '';
     let killed = false;
-    let resultEvent = null; // The final "result" JSON event
     let lastOutputTime = Date.now();
-    // Accumulate token usage across all turns
-    let totalUsage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
-    // Rate limit tracking
-    let rateLimitRejected = false;
-    let rateLimitResetsAt = null;
+    // Typed event state — mutated by STREAM_EVENT_HANDLERS dispatcher
+    const state = {
+      resultEvent: null,
+      totalUsage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      rateLimitRejected: false,
+      rateLimitResetsAt: null,
+    };
 
     // 30 minute hard timeout
     const timeout = setTimeout(() => {
@@ -293,37 +339,10 @@ const runClaude = (message, { onProgress, signal, modelOverride } = {}) => {
         if (!trimmed) continue;
         // Log all events to file for debugging
         logToFile('EVENT', trimmed.slice(0, 500));
-        // Check if this is the final result event + accumulate usage
+        // Dispatch to typed event handlers
         try {
           const ev = JSON.parse(trimmed);
-          if (ev.type === 'result') {
-            resultEvent = ev;
-            // Detect rate limit in result error
-            if (ev.is_error) {
-              const errText = JSON.stringify(ev).toLowerCase();
-              if (/credit|rate.limit|402|429|billing/.test(errText)) {
-                rateLimitRejected = true;
-                logToFile('WARN', `Rate limit detected in result event`);
-              }
-            }
-          }
-          // Detect rate limit rejection events
-          if (ev.type === 'rate_limit_event') {
-            const info = ev.rate_limit_info || {};
-            if (info.status === 'rejected') {
-              rateLimitRejected = true;
-              rateLimitResetsAt = info.resetsAt || null;
-              logToFile('WARN', `Rate limit rejected: type=${info.rateLimitType} resetsAt=${info.resetsAt}`);
-            }
-          }
-          // Accumulate token usage from assistant events
-          const usage = ev.message?.usage || ev.usage;
-          if (usage) {
-            totalUsage.input_tokens += usage.input_tokens || 0;
-            totalUsage.output_tokens += usage.output_tokens || 0;
-            totalUsage.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
-            totalUsage.cache_read_input_tokens += usage.cache_read_input_tokens || 0;
-          }
+          dispatchStreamEvent(ev, state);
         } catch { /* not JSON */ }
         // Parse for progress updates
         const status = parseStreamEvent(trimmed);
@@ -345,25 +364,26 @@ const runClaude = (message, { onProgress, signal, modelOverride } = {}) => {
 
       // Detect rate limit / credit exhaustion
       const stderrRateLimit = /402|429|out.of.credit|rate.limit|credit.balance|billing/i.test(stderr);
-      if (rateLimitRejected || (code !== 0 && stderrRateLimit)) {
-        const resetMsg = rateLimitResetsAt
-          ? ` Resets at ${new Date(rateLimitResetsAt * 1000).toLocaleTimeString()}.`
+      if (state.rateLimitRejected || (code !== 0 && stderrRateLimit)) {
+        const resetMsg = state.rateLimitResetsAt
+          ? ` Resets at ${new Date(state.rateLimitResetsAt * 1000).toLocaleTimeString()}.`
           : '';
         logToFile('WARN', `Claude rate limited.${resetMsg}`);
         const err = new Error(`Claude usage limit reached.${resetMsg}`);
         err.isRateLimit = true;
-        err.resetsAt = rateLimitResetsAt;
+        err.resetsAt = state.rateLimitResetsAt;
         return reject(err);
       }
 
-      if (code !== 0 && !resultEvent) {
+      if (code !== 0 && !state.resultEvent) {
         logToFile('ERROR', `Non-zero exit. stderr: ${stderr.slice(0, 1000)}`);
         return reject(new Error(stderr || `Claude exited with code ${code}`));
       }
 
       // Build token usage footer with estimated API cost
+      const { totalUsage, resultEvent } = state;
       const durationSec = resultEvent ? ((resultEvent.duration_ms || 0) / 1000).toFixed(1) : '?';
-      const turns = resultEvent?.num_turns || '?';
+      const numTurns = resultEvent?.num_turns || '?';
       const totalIn = totalUsage.input_tokens + totalUsage.cache_creation_input_tokens + totalUsage.cache_read_input_tokens;
       const totalAll = totalIn + totalUsage.output_tokens;
 
@@ -380,9 +400,9 @@ const runClaude = (message, { onProgress, signal, modelOverride } = {}) => {
       const totalCost = costInput + costCacheCreate + costCacheRead + costOutput;
       const costStr = totalCost < 0.01 ? '<$0.01' : `$${totalCost.toFixed(2)}`;
 
-      const tokenFooter = `\n\n---\n📊 *${totalAll.toLocaleString()} tokens* · 💰 ${costStr}\n⬇️ ${totalIn.toLocaleString()} in (${totalUsage.cache_read_input_tokens.toLocaleString()} cached) · ⬆️ ${totalUsage.output_tokens.toLocaleString()} out · 🔄 ${turns} turns · ⏱️ ${durationSec}s · 🧠 ${model}`;
+      const tokenFooter = `\n\n---\n📊 *${totalAll.toLocaleString()} tokens* · 💰 ${costStr}\n⬇️ ${totalIn.toLocaleString()} in (${totalUsage.cache_read_input_tokens.toLocaleString()} cached) · ⬆️ ${totalUsage.output_tokens.toLocaleString()} out · 🔄 ${numTurns} turns · ⏱️ ${durationSec}s · 🧠 ${model}`;
 
-      logToFile('USAGE', `in=${totalUsage.input_tokens} cache_create=${totalUsage.cache_creation_input_tokens} cache_read=${totalUsage.cache_read_input_tokens} out=${totalUsage.output_tokens} turns=${turns} duration=${durationSec}s model=${model} cost=${costStr}`);
+      logToFile('USAGE', `in=${totalUsage.input_tokens} cache_create=${totalUsage.cache_creation_input_tokens} cache_read=${totalUsage.cache_read_input_tokens} out=${totalUsage.output_tokens} turns=${numTurns} duration=${durationSec}s model=${model} cost=${costStr}`);
 
       // With stream-json, the last event is the result
       if (resultEvent) {

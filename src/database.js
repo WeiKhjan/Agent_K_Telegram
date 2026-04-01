@@ -30,6 +30,14 @@ const getDb = () => {
         bot_response TEXT,
         created_at TEXT
       );
+      CREATE TABLE IF NOT EXISTS session_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_user_id TEXT,
+        event_type TEXT,
+        detail TEXT,
+        created_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_events_user ON session_events(telegram_user_id, created_at);
     `);
 
     // Add mcp_keys column if missing (migration for existing DBs)
@@ -40,6 +48,11 @@ const getDb = () => {
     // Add preferred_model column if missing (migration for existing DBs)
     try {
       db.exec(`ALTER TABLE sessions ADD COLUMN preferred_model TEXT DEFAULT 'auto'`);
+    } catch { /* column already exists */ }
+
+    // Add max_turns column if missing (migration for existing DBs)
+    try {
+      db.exec(`ALTER TABLE sessions ADD COLUMN max_turns INTEGER DEFAULT 30`);
     } catch { /* column already exists */ }
   }
   return db;
@@ -95,7 +108,8 @@ const logMessage = (userId, userMsg, botResp) => {
 };
 
 const VALID_MODELS = ['auto', 'haiku', 'sonnet', 'opus'];
-const isValidModel = (m) => VALID_MODELS.includes(m) || (typeof m === 'string' && m.startsWith('ollama:'));
+// Ollama model names: alphanumeric, hyphens, dots, underscores, and colon (for tags like "llama3:8b")
+const isValidModel = (m) => VALID_MODELS.includes(m) || (typeof m === 'string' && /^ollama:[\w.\-:]+$/.test(m));
 
 const getPreferredModel = (userId) => {
   const row = getDb().prepare('SELECT preferred_model FROM sessions WHERE telegram_user_id = ?').get(String(userId));
@@ -111,7 +125,49 @@ const setPreferredModel = (userId, model) => {
   `).run(String(userId), model, new Date().toISOString(), model, new Date().toISOString());
 };
 
+// Log a structured session event (Phase 3: dual audit trail)
+const logEvent = (userId, eventType, detail) => {
+  try {
+    getDb().prepare(`
+      INSERT INTO session_events (telegram_user_id, event_type, detail, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(String(userId), eventType, String(detail).slice(0, 2000), new Date().toISOString());
+  } catch (e) { /* ignore */ }
+};
+
+// Get last N session events for a user (for /debug-session command)
+const getSessionEvents = (userId, limit = 20) => {
+  return getDb().prepare(`
+    SELECT event_type, detail, created_at
+    FROM session_events
+    WHERE telegram_user_id = ?
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(String(userId), limit).reverse();
+};
+
+// Per-user max_turns setting (Phase 4: budget control)
+const getUserMaxTurns = (userId) => {
+  const row = getDb().prepare('SELECT max_turns FROM sessions WHERE telegram_user_id = ?').get(String(userId));
+  const val = row?.max_turns;
+  return (val && Number.isInteger(val) && val > 0) ? val : 30;
+};
+
+const setUserMaxTurns = (userId, turns) => {
+  const n = Math.max(1, Math.min(100, parseInt(turns, 10) || 30));
+  getDb().prepare(`
+    INSERT INTO sessions (telegram_user_id, max_turns, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(telegram_user_id) DO UPDATE SET max_turns = ?, updated_at = ?
+  `).run(String(userId), n, new Date().toISOString(), n, new Date().toISOString());
+};
+
 // Initialize DB eagerly at startup (avoid race conditions from concurrent handlers)
 getDb();
 
-module.exports = { getSession, saveSession, logMessage, getRecentMessages, getPreferredModel, setPreferredModel };
+module.exports = {
+  getSession, saveSession, logMessage, getRecentMessages,
+  getPreferredModel, setPreferredModel,
+  logEvent, getSessionEvents,
+  getUserMaxTurns, setUserMaxTurns,
+};
