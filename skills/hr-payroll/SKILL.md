@@ -1,9 +1,68 @@
 ---
 name: hr-payroll
-description: Create employment contracts, onboard new employees, or issue internship agreements for AiTraining2U PLT. Use when asked about contracts, hiring, onboarding, employee records, or HR documents.
+description: Create employment contracts, onboard new employees, issue internship agreements, or generate payslips for AiTraining2U PLT. Use when asked about contracts, hiring, onboarding, employee records, HR documents, or payslips.
 ---
 
-# HR & Payroll — Employment Contract
+# HR & Payroll
+
+---
+
+## Payslip Generation
+
+### Script
+```bash
+/Users/aitraining2u/.local/share/office-venv/bin/python \
+  ~/Agent_K_Telegram/skills/hr-payroll/generate_payslip.py \
+  --month YYYY-MM \
+  --out ~/
+```
+
+### Employee Data (edit `PAYSLIP_DATA` in the script each month)
+| Field | Notes |
+|---|---|
+| `name` | Full legal name |
+| `emp_id` | ATU-EMP-YYYY-XXXX |
+| `position` | Job title |
+| `basic` | Basic salary (RM) |
+| `ot` | Overtime (RM, 0 if none) |
+| `allowances` | List of `("Label", amount)` tuples |
+| `pcb` | PCB/MTD (0 = pending) |
+
+### Statutory Rates (auto-calculated)
+| Contribution | Employee | Employer |
+|---|---|---|
+| EPF/KWSP | 11% of basic | 13% of basic (salary ≤ RM5,000) |
+| SOCSO/PERKESO | 0.5% of gross (capped RM5k) | 1.75% |
+| EIS/SIP | 0.4% of gross (capped RM5k) | 0.4% |
+| PCB/MTD | As provided | — |
+
+### Output
+- One `.xlsx` file per employee: `Payslip_YYYY-MM_{FirstName}_{EmpID}.xlsx`
+- Computer-generated — no signature required
+- After generating, convert to PDF and deliver:
+  - User in **Telegram group** → group `$TELEGRAM_GROUP_CHAT_ID`
+  - User in **DM or terminal** → DM `$TELEGRAM_DM_CHAT_ID`
+
+### Convert to PDF
+```bash
+/Users/aitraining2u/.local/share/office-venv/bin/python - <<'EOF'
+import subprocess, glob, os
+xlsx_files = glob.glob(os.path.expanduser("~/Payslip_*.xlsx"))
+for f in xlsx_files:
+    out = f.replace(".xlsx", ".pdf")
+    subprocess.run([
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        "--headless", "--convert-to", "pdf", "--outdir",
+        os.path.dirname(f), f
+    ], check=True)
+    print(f"PDF: {out}")
+EOF
+```
+If LibreOffice not available, use `openpyxl` output directly as `.xlsx` and send that.
+
+---
+
+# Employment Contract
 
 ## Contract Types Supported
 - **Full-time** (permanent employment)

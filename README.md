@@ -23,6 +23,50 @@ session continuity, and returns responses.
 
 ## Quick Start
 
+### 0. Check your OS and grant permissions
+
+**What OS are you running?**
+
+<details>
+<summary><strong>macOS</strong></summary>
+
+Agent K needs the following macOS permissions to control apps, take screenshots, and access files. Grant these **before** running setup:
+
+**System Settings → Privacy & Security:**
+
+| Permission | What to add | Why |
+|---|---|---|
+| **Full Disk Access** | Terminal.app, `node` | Read/write files outside `~/` |
+| **Accessibility** | Terminal.app, `node` | Control apps via AppleScript/System Events |
+| **Screen & System Audio Recording** | Terminal.app | Take screenshots (`screencapture`) |
+| **Automation** | Terminal.app → System Events, Finder | Automate native apps via `osascript` |
+
+**How to add Terminal.app:**
+1. Open System Settings → Privacy & Security → select the category
+2. Click `+`, navigate to `/Applications/Utilities/Terminal.app`
+3. Toggle on
+
+**How to add Node.js** (not a `.app`, so it's hidden):
+1. In the `+` dialog, press `Cmd + Shift + G`
+2. Type the path to your node binary (e.g. `~/.local/bin/` or run `which node` to find it)
+3. Select the `node` file and click Open
+
+</details>
+
+<details>
+<summary><strong>Linux</strong></summary>
+
+No special permissions needed. Ensure your user has access to the display server (X11/Wayland) if you plan to use screenshot features.
+
+</details>
+
+<details>
+<summary><strong>Windows</strong></summary>
+
+Run Terminal/PowerShell as your normal user. No special permissions needed. Use `start-agent-k.bat` to start the bot.
+
+</details>
+
 ### 1. Clone and install
 
 ```bash
